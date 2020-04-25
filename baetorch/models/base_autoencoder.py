@@ -33,10 +33,9 @@ import torch
 import copy
 from torch.nn import Parameter
 import torch.nn.functional as F
-import bnn.bnn_utils as bnn_utils
-from torchvision import datasets, transforms
+import baetorch.util.dense_util as bnn_utils
 import numpy as np
-from bnn.develop.bayesian_autoencoders.conv2d_util import calc_required_padding, calc_flatten_conv2d_forward_pass, calc_flatten_conv2dtranspose_forward_pass
+from baetorch.util.conv2d_util import calc_required_padding, calc_flatten_conv2d_forward_pass, calc_flatten_conv2dtranspose_forward_pass
 from torch.autograd import Variable
 from tqdm import tqdm
 from sklearn.decomposition import PCA
@@ -390,7 +389,6 @@ class Autoencoder(torch.nn.Module):
             self.log_noise = Parameter(torch.FloatTensor([np.log(init_log_noise)]*log_noise_size))
         elif homoscedestic_mode== "none":
             self.log_noise = Parameter(torch.FloatTensor([[0.]]),requires_grad=False)
-        print(self.log_noise.shape)
 
     def reset_parameters(self):
         self._reset_nested_parameters(self.encoder)
@@ -401,8 +399,6 @@ class Autoencoder(torch.nn.Module):
 
     def _reset_parameters(self,child_layer):
         if hasattr(child_layer, 'reset_parameters'):
-            print("RESET NOW")
-            print(child_layer)
             child_layer.reset_parameters()
 
     def _reset_nested_parameters(self,network):

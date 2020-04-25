@@ -5,25 +5,20 @@ import scipy.stats as stats
 from scipy.signal import find_peaks
 from math import log10, floor
 
-
-seed_value=125
-torch.manual_seed(seed_value)
-np.random.seed(seed_value)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(seed_value)
-    torch.backends.cudnn.deterministic = True  #tested - needed for reproducibility
-    torch.backends.cudnn.benchmark = False
-    torch.cuda.manual_seed(seed_value)
-from bnn.develop.bayesian_autoencoders.base_autoencoder import *
+from baetorch.models.base_autoencoder import *
 from torchvision import datasets, transforms
-from bnn.develop.bayesian_autoencoders.bae_mcdropout import BAE_MCDropout
-from bnn.develop.bayesian_autoencoders.bae_vi import BAE_VI, VAE
-from bnn.develop.bayesian_autoencoders.bae_ensemble import BAE_Ensemble
-from bnn.develop.bayesian_autoencoders.plotting import *
-from bnn.develop.bayesian_autoencoders.evaluation import *
-from bnn.develop.bayesian_autoencoders.test_suite import run_test_model
-from bnn.develop.bayesian_autoencoders.lr_range_finder_class import run_auto_lr_range
+from baetorch.models.bae_mcdropout import BAE_MCDropout
+from baetorch.models.bae_vi import BAE_VI, VAE
+from baetorch.models.bae_ensemble import BAE_Ensemble
+from baetorch.plotting import *
+from baetorch.evaluation import *
+from baetorch.test_suite import run_test_model
+from baetorch.lr_range_finder import run_auto_lr_range
 import time
+
+from baetorch.util.seed import set_seed
+
+set_seed(100)
 
 #EXAMPLE MAIN
 #load fashion mnist
@@ -142,21 +137,21 @@ bae_model = vae
 
 #train mu network
 run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate")
-# bae_model.fit(train_loader,num_epochs=5, mode="mu")
-#
-# if bae_model.decoder_sigma_enabled:
-#     run_auto_lr_range(train_loader, bae_model, mode="sigma",sigma_train="separate", reset_params=False)
-#     bae_model.fit(train_loader,num_epochs=1, mode="sigma", sigma_train="separate")
-#
-# #for each model, evaluate and plot:
-# bae_models = [bae_model]
-# id_data_test = test_loader
-# ood_data_list = [ood_loader]
-# ood_data_names = ["OOD"]
-# exclude_keys =[]
-# dist_exclude_keys = ["aleatoric_var","waic_se","nll_homo_var","waic_homo","waic_sigma"]
-# train_set_name = "FashionMNIST"
-#
-# #run evaluation test of model on ood data set
-# run_test_model(bae_models=bae_models, id_data_test=test_loader, ood_data_list=ood_data_list,
-#                ood_data_names=ood_data_names, id_data_name=train_set_name)
+bae_model.fit(train_loader,num_epochs=1, mode="mu")
+
+if bae_model.decoder_sigma_enabled:
+    run_auto_lr_range(train_loader, bae_model, mode="sigma",sigma_train="separate", reset_params=False)
+    bae_model.fit(train_loader,num_epochs=1, mode="sigma", sigma_train="separate")
+
+#for each model, evaluate and plot:
+bae_models = [bae_model]
+id_data_test = test_loader
+ood_data_list = [ood_loader]
+ood_data_names = ["OOD"]
+exclude_keys =[]
+dist_exclude_keys = ["aleatoric_var","waic_se","nll_homo_var","waic_homo","waic_sigma"]
+train_set_name = "FashionMNIST"
+
+#run evaluation test of model on ood data set
+run_test_model(bae_models=bae_models, id_data_test=test_loader, ood_data_list=ood_data_list,
+               ood_data_names=ood_data_names, id_data_name=train_set_name)

@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn import metrics
-from bnn.develop.bayesian_autoencoders.evaluation import calc_mean_results, calc_fpr80
+from baetorch.evaluation import calc_mean_results, calc_fpr80
 import os
 import scipy.stats as stats
 import torch

@@ -2,23 +2,16 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 import scipy.stats as stats
-
-seed_value=100
-torch.manual_seed(seed_value)
-np.random.seed(seed_value)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(seed_value)
-    torch.backends.cudnn.deterministic = True  #tested - needed for reproducibility
-    torch.backends.cudnn.benchmark = False
-    torch.cuda.manual_seed(seed_value)
-from bnn.develop.bayesian_autoencoders.base_autoencoder import *
+from baetorch.models.base_autoencoder import *
 from torchvision import datasets, transforms
-from bnn.develop.bayesian_autoencoders.bae_mcdropout import BAE_MCDropout
-from bnn.develop.bayesian_autoencoders.bae_vi import BAE_VI, VAE
-from bnn.develop.bayesian_autoencoders.bae_ensemble import BAE_Ensemble
-from bnn.develop.bayesian_autoencoders.plotting import *
-from bnn.develop.bayesian_autoencoders.evaluation import *
+from baetorch.models.bae_mcdropout import BAE_MCDropout
+from baetorch.models.bae_vi import BAE_VI, VAE
+from baetorch.models.bae_ensemble import BAE_Ensemble
+from baetorch.plotting import *
+from baetorch.evaluation import *
+from baetorch.util.seed import set_seed
 
+set_seed(100)
 
 #EXAMPLE MAIN
 #load fashion mnist

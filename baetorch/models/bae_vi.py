@@ -1,7 +1,6 @@
-from bnn.develop.bayesian_autoencoders.base_autoencoder import ConvLayers, DenseLayers, BAE_BaseClass, Autoencoder, flatten_torch, flatten_np, Encoder
+from baetorch.models.base_autoencoder import ConvLayers, DenseLayers, BAE_BaseClass, Autoencoder, flatten_torch, flatten_np, Encoder
 import torch
 from torch.nn import Parameter
-from torch.distributions import Normal, Uniform, Categorical,MultivariateNormal
 import torch.nn.functional as F
 from torch.nn.modules.conv import Conv2d, ConvTranspose2d
 from torch.autograd import Variable

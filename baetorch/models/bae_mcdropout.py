@@ -1,4 +1,4 @@
-from bnn.develop.bayesian_autoencoders.base_autoencoder import ConvLayers, DenseLayers, BAE_BaseClass, Autoencoder
+from baetorch.models.base_autoencoder import ConvLayers, DenseLayers, BAE_BaseClass, Autoencoder
 import torch
 
 #Layers
