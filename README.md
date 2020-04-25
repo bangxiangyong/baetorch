@@ -6,5 +6,6 @@ TODO:
 - show how to:
   - change fully-dense to convolutional autoencoders
   - use with/without learning rate finder 
+  - run test suite
 
 Simplicity is a virtue ! 
