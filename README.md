@@ -1,6 +1,14 @@
 # baetorch
 Python library for Bayesian Autoencoders
 
+## Features
+- Quantify epistemic uncertainty using approximate Bayesian inference
+  - MC-Dropout
+  - Bayesian Ensembling
+  - Variational Inference (Bayes by Backprop)
+- Quantify (homo/heteroskedestic) aleatoric uncertainty using Gaussian Likelihood
+- Automatic learning rate finder for Bayesian Autoencoders
+
 ## Evaluation and plots
 ### Samples from BAE-Ensemble (M=5), FashionMNIST vs MNIST
 ![ID](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/ID-samples.png)
@@ -12,15 +20,6 @@ Python library for Bayesian Autoencoders
 
 ### Automatic learning rate finder (based on Leslie Smith's methods)
 ![Auto-learning-rate](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/auto-learning-rate-finder.png)
-
-## Features
-- Quantify epistemic uncertainty using approximate Bayesian inference
-  - MC-Dropout
-  - Bayesian Ensembling
-  - Variational Inference (Bayes by Backprop)
-- Quantify (homo/heteroskedestic) aleatoric uncertainty using Gaussian Likelihood
-- Automatic learning rate finder for Bayesian Autoencoders
-
 
 ## TODO:
 - separate examples for VI, MCDropout, Ensemble
