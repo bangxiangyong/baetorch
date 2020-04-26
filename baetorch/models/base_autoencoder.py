@@ -768,7 +768,7 @@ class BAE_BaseClass():
 
         return y_preds
 
-    def predict_dataloader(self, dataloader: torch.utils.data.dataloader.DataLoader):
+    def predict_dataloader(self, dataloader: torch.utils.data.dataloader.DataLoader,exclude_keys: list =[]):
         """
         Accumulate results from each test batch, instead of calculating all at one go.
         """
@@ -776,7 +776,7 @@ class BAE_BaseClass():
 
         for batch_idx, (data, target) in tqdm(enumerate(dataloader)):
             #predict new batch of results
-            next_batch_result = self._predict(data)
+            next_batch_result = self._predict(data,exclude_keys)
 
             #populate for first time
             if batch_idx ==0:
@@ -798,7 +798,7 @@ class BAE_BaseClass():
         y_preds = np.array(y_preds)
         return y_preds
 
-    def predict(self,x):
+    def predict(self,x,exclude_keys=[]):
         """
         Handles various data types including torch dataloader
 
@@ -806,11 +806,11 @@ class BAE_BaseClass():
 
         """
         if isinstance(x, torch.utils.data.dataloader.DataLoader):
-            return self.predict_dataloader(x)
+            return self.predict_dataloader(x,exclude_keys)
         else: #numpy array or tensor
-            return self._predict(x)
+            return self._predict(x,exclude_keys)
 
-    def _predict(self,x):
+    def _predict(self,x, exclude_keys : list =[]):
         """
         Computes mean and variances of the BAE model outputs
 
@@ -836,8 +836,15 @@ class BAE_BaseClass():
         y_mu_mean, y_sigma_mean, se_mean,bce_mean, nll_homo_mean,nll_sigma_mean = mean_samples
         y_mu_var, y_sigma_var, se_var,bce_var, nll_homo_var,nll_sigma_var= var_samples
 
-        #combination of outputs
-        total_unc = y_sigma_mean+y_mu_var
+        #total uncertainty = epistemic+aleatoric
+        if self.decoder_sigma_enabled:
+            total_unc = y_sigma_mean+y_mu_var
+        elif self.homoscedestic_mode != "none":
+            total_unc = y_sigma_mean+self.get_homoscedestic_noise(return_mean=False)
+        else:
+            total_unc = y_mu_var
+
+        #calculate waic
         waic_se = se_mean+se_var
         waic_homo = nll_homo_mean+nll_homo_var
         waic_nll = nll_sigma_mean+nll_sigma_var
@@ -845,14 +852,24 @@ class BAE_BaseClass():
         #bce loss
         waic_bce = bce_mean+bce_var
 
+        #filter out unnecessary outputs based on model settings of computing aleatoric uncertainty
+        if self.decoder_sigma_enabled == False:
+            exclude_keys = exclude_keys+["aleatoric","aleatoric_var", "nll_sigma_var", "nll_sigma_mean", "nll_sigma_waic"]
+        if self.homoscedestic_mode == "none":
+            exclude_keys = exclude_keys+["nll_homo_mean", "nll_homo_var", "nll_homo_waic"]
+        if self.homoscedestic_mode == "none" and self.decoder_sigma_enabled == False:
+            exclude_keys = exclude_keys+["total_unc"]
 
-        return {"input":x,"mu":y_mu_mean, "epistemic":y_mu_var,
+        return_dict= {"input":x,"mu":y_mu_mean, "epistemic":y_mu_var,
                 "aleatoric":y_sigma_mean,"aleatoric_var":y_sigma_var,
                 "total_unc":total_unc, "bce_mean":bce_mean, "bce_var":bce_var, "bce_waic":waic_bce,
-                "se_mean":se_mean, "se_var":se_var, "waic_se":waic_se,
-                "nll_homo_mean":nll_homo_mean, "nll_homo_var":nll_homo_var, "waic_homo":waic_homo,
-                "nll_sigma_mean":nll_sigma_mean, "nll_sigma_var":nll_sigma_var, "waic_sigma":waic_nll
+                "se_mean":se_mean, "se_var":se_var, "se_waic":waic_se,
+                "nll_homo_mean":nll_homo_mean, "nll_homo_var":nll_homo_var, "nll_homo_waic":waic_homo,
+                "nll_sigma_mean":nll_sigma_mean, "nll_sigma_var":nll_sigma_var, "nll_sigma_waic":waic_nll
                 }
+
+        return_dict = {filtered_key:value for filtered_key,value in return_dict.items() if filtered_key not in exclude_keys}
+        return return_dict
 
     def bce_loss_np(self,y_pred,y_true):
         bce = -(y_true*np.log(y_pred) + (1-y_true)*np.log(1-y_pred))
