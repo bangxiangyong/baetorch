@@ -7,6 +7,10 @@ from baetorch.lr_range_finder import run_auto_lr_range
 
 from baetorch.util.seed import bae_set_seed
 
+#set cuda if available
+use_cuda = torch.cuda.is_available()
+
+
 #set seed for reproduciliblity
 bae_set_seed(100)
 
@@ -44,7 +48,7 @@ autoencoder = Autoencoder(encoder, decoder_mu)
 bae_vi = BAE_VI(autoencoder=autoencoder,
                 num_train_samples=5,
                 num_samples=25, #during prediction only
-                use_cuda=True,
+                use_cuda=use_cuda,
                 weight_decay=0.01)
 
 bae_model = bae_vi
