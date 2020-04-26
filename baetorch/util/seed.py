@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 
-def set_seed(seed_value=100):
+def bae_set_seed(seed_value=100):
     """
     For ensuring reproducibility, sets the seed across torch, torch.cuda, and numpy
     """

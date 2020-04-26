@@ -9,9 +9,9 @@ from baetorch.models.bae_vi import BAE_VI, VAE
 from baetorch.models.bae_ensemble import BAE_Ensemble
 from baetorch.plotting import *
 from baetorch.evaluation import *
-from baetorch.util.seed import set_seed
+from baetorch.util.seed import bae_set_seed
 
-set_seed(100)
+bae_set_seed(100)
 
 #EXAMPLE MAIN
 #load fashion mnist

@@ -16,9 +16,9 @@ from baetorch.test_suite import run_test_model
 from baetorch.lr_range_finder import run_auto_lr_range
 import time
 
-from baetorch.util.seed import set_seed
+from baetorch.util.seed import bae_set_seed
 
-set_seed(100)
+bae_set_seed(100)
 
 #EXAMPLE MAIN
 #load fashion mnist
