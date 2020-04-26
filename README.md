@@ -6,7 +6,7 @@ Python library for Bayesian Autoencoders
 ![ID](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/ID-samples.png)
 ![OOD](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/OOD-samples.png)
 
-### Comparison of performance based on epistemic uncertainty
+### Comparison of performance 
 ![ROC](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/ROC.png)
 ![PRC](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/PRC.png)
 
