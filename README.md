@@ -4,7 +4,7 @@ Python library for Bayesian Autoencoders
 ## Features
 - Quantify epistemic uncertainty using approximate Bayesian inference
   - MC-Dropout
-  - Bayesian Ensembling
+  - Bayesian Ensembling (with Anchored priors)
   - Variational Inference (Bayes by Backprop)
 - Quantify (homo/heteroskedestic) aleatoric uncertainty using Gaussian Likelihood
 - Automatic learning rate finder for Bayesian Autoencoders
