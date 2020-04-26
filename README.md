@@ -18,7 +18,7 @@ Python library for Bayesian Autoencoders
   - MC-Dropout
   - Bayesian Ensembling
   - Variational Inference (Bayes by Backprop)
-- Quantify (homo-hetero) aleatoric uncertainty using Gaussian Likelihood
+- Quantify (homo/heteroskedestic) aleatoric uncertainty using Gaussian Likelihood
 - Automatic learning rate finder for Bayesian Autoencoders
 
 
