@@ -3,10 +3,10 @@ Python library for Bayesian Autoencoders
 
 ## Evaluation and plots
 ### Samples from BAE-Ensemble (M=5), FashionMNIST vs MNIST
-Predictions on In-distribution test data (FashionMNIST)
+- Predictions on In-distribution test data (FashionMNIST)
 ![Predictions on In-distribution test data (FashionMNIST)](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/ID-samples.png)
 
-Predictions on Out of distribution data (MNIST) ![Predictions on Out of distribution data (MNIST)](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/OOD-samples.png)
+- Predictions on Out of distribution data (MNIST) ![Predictions on Out of distribution data (MNIST)](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/OOD-samples.png)
 
 ### Comparison of performance based on epistemic uncertainty
 AUROC curve ![ROC](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/ROC.png)
