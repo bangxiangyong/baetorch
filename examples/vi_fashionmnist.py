@@ -47,7 +47,7 @@ autoencoder = Autoencoder(encoder, decoder_mu)
 #convert into BAE-VI
 bae_vi = BAE_VI(autoencoder=autoencoder,
                 num_train_samples=5,
-                num_samples=25, #during prediction only
+                num_samples=50, #during prediction only
                 use_cuda=use_cuda,
                 weight_decay=0.01)
 
