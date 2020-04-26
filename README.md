@@ -11,7 +11,7 @@ Predictions on In-distribution test data (FashionMNIST) vs OOD test data (MNIST)
 ![ROC](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/ROC.png)
 ![PRC](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/PRC.png)
 
-### Automatic learning rate finder (based on Leslie Smith)
+### Automatic learning rate finder (based on Leslie Smith's methods)
 ![Auto-learning-rate](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/auto-learning-rate-finder.png)
 
 ## Features
