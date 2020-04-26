@@ -1,3 +1,6 @@
-**/data-
 plots
 results
+.idea/
+data*/
+__pycache__
+depracated
