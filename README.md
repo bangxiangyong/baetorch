@@ -6,15 +6,12 @@ Python library for Bayesian Autoencoders
 Predictions on In-distribution test data (FashionMNIST)
 ![Predictions on In-distribution test data (FashionMNIST)](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/ID-samples.png)
 
-Predictions on Out of distribution data (MNIST)
-![Predictions on Out of distribution data (MNIST)](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/OOD-samples.png)
+Predictions on Out of distribution data (MNIST) ![Predictions on Out of distribution data (MNIST)](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/OOD-samples.png)
 
 ### Comparison of performance based on epistemic uncertainty
-AUROC curve
-![ROC](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/ROC.png)
+AUROC curve ![ROC](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/ROC.png)
 
-AUPRC curve
-![PRC](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/PRC.png)
+AUPRC curve ![PRC](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/PRC.png)
 
 ### Automatic learning rate finder (based on Leslie Smith)
 Automatic learning rate finder
