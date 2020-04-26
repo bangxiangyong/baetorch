@@ -130,7 +130,6 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
     if verbose:
         print(min_max_lr_text)
     if plot:
-        plot_learning_rate_iterations(train_batch_number, lr_list)
         plot_learning_rate_finder(X,y,gp_mean,negative_peaks, minimum_lr,maximum_lr)
 
     #reset the model again after training
