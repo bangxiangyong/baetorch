@@ -3,7 +3,6 @@ Python library for Bayesian Autoencoders
 
 ## Evaluation and plots
 ### Samples from BAE-Ensemble (M=5), FashionMNIST vs MNIST
-Predictions on In-distribution test data (FashionMNIST) vs OOD test data (MNIST)
 ![ID](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/ID-samples.png)
 ![OOD](https://github.com/bangxiangyong/baetorch/blob/master/github_figures/OOD-samples.png)
 
