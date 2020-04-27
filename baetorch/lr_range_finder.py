@@ -34,7 +34,9 @@ def plot_learning_rate_finder(X, y, gp_mean,negative_peaks,minimum_lr,maximum_lr
     plt.title(min_max_lr_text)
 
 
-def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate", min_lr_range=0.0000001, max_lr_range=10, reset_params=True, plot=True, verbose=True):
+def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate",
+                      min_lr_range=0.0000001, max_lr_range=10,
+                      reset_params=False, plot=True, verbose=True, save_mecha="copy"):
     #helper function
     def round_sig(x, sig=2):
         return round(x, sig-int(floor(log10(abs(x))))-1)
@@ -43,9 +45,12 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
     total_iterations = len(train_loader)
     half_iterations = int(total_iterations/2)
 
-    #save model state
-    # bae_model.save_model_state()
-    temp_autoencoder = copy.deepcopy(bae_model.autoencoder)
+    #save temporary model state
+    #depending on chosen mechanism
+    if save_mecha == "file":
+        bae_model.save_model_state()
+    elif save_mecha == "copy":
+        temp_autoencoder = copy.deepcopy(bae_model.autoencoder)
 
     #reset it before anything
     if reset_params:
@@ -141,7 +146,8 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
     bae_model.scheduler_enabled = True
 
     #load model state
-    # bae_model.load_model_state()
-    bae_model.autoencoder = temp_autoencoder
-
+    if save_mecha == "file":
+        bae_model.load_model_state()
+    if save_mecha == "copy":
+        bae_model.autoencoder = temp_autoencoder
     return minimum_lr, maximum_lr, half_iterations
