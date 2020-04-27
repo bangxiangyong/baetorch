@@ -422,7 +422,7 @@ class Autoencoder(torch.nn.Module):
 class BAE_BaseClass():
     def __init__(self, autoencoder=Autoencoder, num_samples=100, anchored=False, weight_decay=0.01,
                  num_epochs=10, verbose=True, use_cuda=False, task="regression", learning_rate=0.01, learning_rate_sig=None,
-                 homoscedestic_mode="none", model_type="stochastic", model_name="BAE", scheduler_enabled=False):
+                 homoscedestic_mode="none", model_type="stochastic", model_name="BAE", scheduler_enabled=False, likelihood="gaussian"):
 
         #save kwargs
         self.num_samples = num_samples
@@ -439,7 +439,7 @@ class BAE_BaseClass():
         self.model_name = model_name
         self.losses = []
         self.scheduler_enabled = scheduler_enabled
-
+        self.likelihood = likelihood
         if learning_rate_sig is None:
             self.learning_rate_sig = learning_rate
         else:
@@ -713,8 +713,11 @@ class BAE_BaseClass():
                 y_pred_mu, y_pred_sig = autoencoder(x)
             else:
                 y_pred_mu = autoencoder(x)
-            nll = -self.log_gaussian_loss_logsigma_torch(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
-            # nll = F.binary_cross_entropy(flatten_torch(y_pred_mu), flatten_torch(y))
+
+            if self.likelihood == "gaussian":
+                nll = -self.log_gaussian_loss_logsigma_torch(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
+            else:
+                nll = F.binary_cross_entropy(flatten_torch(y_pred_mu), flatten_torch(y))
         return nll
 
     def criterion(self, autoencoder: Autoencoder, x,y=None, mode="sigma"):
