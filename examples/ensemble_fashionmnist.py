@@ -44,7 +44,7 @@ decoder_mu = infer_decoder(encoder,last_activation="sigmoid") #symmetrical to en
 #combine them into autoencoder
 autoencoder = Autoencoder(encoder, decoder_mu)
 
-#convert into BAE-VI
+#convert into BAE-Ensemble
 bae_ensemble = BAE_Ensemble(autoencoder=autoencoder, use_cuda=use_cuda, anchored=True, weight_decay=1, num_samples=5)
 
 #train mu network
