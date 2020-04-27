@@ -422,7 +422,7 @@ class Autoencoder(torch.nn.Module):
 class BAE_BaseClass():
     def __init__(self, autoencoder=Autoencoder, num_samples=100, anchored=False, weight_decay=0.01,
                  num_epochs=10, verbose=True, use_cuda=False, task="regression", learning_rate=0.01, learning_rate_sig=None,
-                 homoscedestic_mode="none", model_type="stochastic", model_name="BAE", scheduler_enabled=False, likelihood="gaussian"):
+                 homoscedestic_mode="none", model_type="stochastic", model_name="BAE", scheduler_enabled=False, likelihood="gaussian", denoising_factor=0):
 
         #save kwargs
         self.num_samples = num_samples
@@ -440,6 +440,7 @@ class BAE_BaseClass():
         self.losses = []
         self.scheduler_enabled = scheduler_enabled
         self.likelihood = likelihood
+        self.denoising_factor = denoising_factor
         if learning_rate_sig is None:
             self.learning_rate_sig = learning_rate
         else:
@@ -650,9 +651,17 @@ class BAE_BaseClass():
         """
         #extract input and output size from data
         #and convert into tensor, if not already
+
+        #if denoising is enabled
+        if self.denoising_factor:
+            y =copy.deepcopy(x)
+            x =x + self.denoising_factor * torch.randn(*x.shape)
+            x = torch.clamp(x, 0., 1.)
+
         if y is None:
             y = x
         x,y = self.convert_tensor(x,y)
+
 
         #train for n epochs
         loss = self.criterion(autoencoder=self.autoencoder, x=x, y=y, mode=mode)
