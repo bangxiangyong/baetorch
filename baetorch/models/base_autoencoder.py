@@ -45,11 +45,6 @@ def create_dir(folder="plots"):
     if os.path.exists(folder) == False:
         os.mkdir(folder)
 
-def get_sample_dataloader(data_loader):
-    dataiter = iter(data_loader)
-    batch_data = dataiter.next()
-    return batch_data[0], batch_data[1]
-
 ###TORCH BASE MODULES###
 class ConvLayers(torch.nn.Module):
     def __init__(self, input_dim=28, conv_architecture=[1,32,64], conv_kernel=3,
@@ -873,7 +868,7 @@ class BAE_BaseClass():
 
     def bce_loss_np(self,y_pred,y_true):
         bce = -(y_true*np.log(y_pred) + (1-y_true)*np.log(1-y_pred))
-        bce = np.nan_to_num(bce, nan=0,posinf=1,neginf=0)
+        bce = np.nan_to_num(bce, nan=0,posinf=100,neginf=-100)
         return bce
 
     def _get_mu_sigma_single(self, autoencoder, x):
