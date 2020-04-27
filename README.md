@@ -6,7 +6,7 @@ Python library for Bayesian Autoencoders
   - MC-Dropout
   - Bayesian Ensembling (with Anchored priors)
   - Variational Inference (Bayes by Backprop)
-- Options for specifying data likelihood p(X|theta) and prior on weights p(theta)
+- Options for specifying data likelihood p(X|theta)
 - Quantify (homo/heteroskedestic) aleatoric uncertainty using Gaussian Likelihood
 - Automatic learning rate finder for Bayesian Autoencoders
 
