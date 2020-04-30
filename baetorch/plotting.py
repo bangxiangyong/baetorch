@@ -2,13 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn import metrics
 from baetorch.evaluation import calc_mean_results, calc_fpr80
-import os
 import scipy.stats as stats
 import torch
-
-def create_dir(folder="plots"):
-    if os.path.exists(folder) == False:
-        os.mkdir(folder)
+from baetorch.util.misc import get_sample_dataloader, create_dir
 
 #modularised plots and evaluation
 def plot_samples_img(data=[],plot_samples=10, reshape_size=None, savefile="", savefolder="plots"):
@@ -262,21 +258,33 @@ def plot_calibration_curve(*models, id_data_test=None,savefile="",savefolder="pl
     plt.legend(legends)
     plt.plot(ideal_xrange,ideal_xrange,'-.')
 
-def plot_latent(*datasets, legends=[],model, transform_pca=True, alpha=0.9):
-    fig, (ax_mu,ax_sig) = plt.subplots(1,2)
+def plot_latent(*datasets, legends=[],bae_model, transform_pca=True, return_var=True, alpha=0.9):
+    #return var validity depends on bae model.num_samples
+    if return_var and bae_model.num_samples >1:
+        return_var = True
+    else:
+        return_var = False
 
+    #do actual plot
+    if return_var:
+        fig, (ax_mu,ax_sig) = plt.subplots(1,2)
+    else:
+        fig, (ax_mu) = plt.subplots(1,1)
     for dataset in datasets:
-        data_latent_mu,data_latent_sig = model.predict_latent(dataset,transform_pca)
+        data_latent_mu,data_latent_sig = bae_model.predict_latent(get_sample_dataloader(dataset)[0],transform_pca)
         ax_mu.scatter(data_latent_mu[:,0],data_latent_mu[:,1],alpha=alpha)
-        ax_sig.scatter(data_latent_sig[:,0],data_latent_sig[:,1],alpha=alpha)
+        if return_var :
+           ax_sig.scatter(data_latent_sig[:,0],data_latent_sig[:,1],alpha=alpha)
 
     if len(legends) >0:
         ax_mu.legend(legends)
-        ax_sig.legend(legends)
+        if return_var:
+            ax_sig.legend(legends)
 
     #set titles
-    ax_mu.set_title(model.model_name+" latent mean")
-    ax_sig.set_title(model.model_name+" latent variance")
+    ax_mu.set_title(bae_model.model_name+" latent mean")
+    if return_var:
+        ax_sig.set_title(bae_model.model_name+" latent variance")
 
 def plot_train_loss(model,savefile="",savefolder="plots"):
     create_dir(savefolder)
