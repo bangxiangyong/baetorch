@@ -95,7 +95,9 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
                 smoothen_loss = (loss * k) + smoothen_loss_list[-1]*(1-k)
                 if smoothen_loss <= current_minimum_loss:
                     current_minimum_loss = smoothen_loss
-                if (np.abs(smoothen_loss) >= np.abs(current_minimum_loss)*4) or (smoothen_loss>loss_list[0]*1.25) and (batch_idx+1)>=(window_size+10):
+
+                #stopping criteria
+                if ((np.abs(smoothen_loss) >= np.abs(current_minimum_loss)*4) or (smoothen_loss>loss_list[0]*1.25) and (batch_idx+1)>=(window_size+10)) or np.isnan(smoothen_loss):
                     break
                 smoothen_loss_list.append(smoothen_loss)
                 if verbose:
