@@ -847,7 +847,7 @@ class BAE_BaseClass():
         if self.decoder_sigma_enabled:
             total_unc = y_sigma_mean+y_mu_var
         elif self.homoscedestic_mode != "none":
-            total_unc = y_sigma_mean+self.get_homoscedestic_noise(return_mean=False)
+            total_unc = y_sigma_mean+self.get_homoscedestic_noise(return_mean=False)[0]
         else:
             total_unc = y_mu_var
 
@@ -987,7 +987,6 @@ class BAE_BaseClass():
         """
         x = self.convert_tensor(x)
         latent_data = self.predict_latent_samples(x)
-
         latent_mu = latent_data.mean(0).detach().cpu().numpy()
         latent_sigma = latent_data.var(0).detach().cpu().numpy()
 
