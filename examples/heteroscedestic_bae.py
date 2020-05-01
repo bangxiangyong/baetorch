@@ -24,7 +24,6 @@ test_loader = torch.utils.data.DataLoader(
 ood_loader = torch.utils.data.DataLoader(
     datasets.MNIST('data-mnist', train=False, download=True, transform=transforms.Compose([ transforms.ToTensor(),])), batch_size=test_samples, shuffle=True)
 
-
 #model architecture
 latent_dim = 10
 input_dim = 28
@@ -34,12 +33,12 @@ conv_architecture=[input_channel,12,24,48]
 
 #specify encoder
 #with convolutional layers and hidden dense layer
-encoder = Encoder([ConvLayers(input_dim=input_dim,conv_architecture=conv_architecture, conv_kernel=[4,4,4], conv_stride=[2,2,2], last_activation="sigmoid"),
+encoder = Encoder([ConvLayers(input_dim=input_dim,conv_architecture=conv_architecture,
+                              conv_kernel=[4,4,4], conv_stride=[2,2,2], last_activation="sigmoid"),
            DenseLayers(architecture=[],output_size=latent_dim)])
 
 #specify decoder-mu
 decoder_mu = infer_decoder(encoder,last_activation="sigmoid") #symmetrical to encoder
-
 
 #option 1: infer decoder sigma equals to reflection of encoder
 decoder_sig_dense = infer_decoder(encoder,last_activation="none")
@@ -51,7 +50,6 @@ decoder_sig_dense = DenseLayers(input_size=latent_dim,
 
 #combine them into autoencoder
 autoencoder = Autoencoder(encoder, decoder_mu, decoder_sig_dense)
-autoencoder = Autoencoder(encoder, decoder_mu, decoder_sig_dense)
 
 #convert into BAE
 bae_model = BAE_Ensemble(autoencoder=autoencoder, use_cuda=use_cuda,
@@ -60,13 +58,13 @@ bae_model = BAE_Ensemble(autoencoder=autoencoder, use_cuda=use_cuda,
 
 #train mu network
 run_auto_lr_range(train_loader, bae_model)
-bae_model.fit(train_loader,num_epochs=1)
+bae_model.fit(train_loader,num_epochs=2)
 
 #train sigma network, if it is enabled:
 if bae_model.decoder_sigma_enabled:
-    bae_model.init_scheduler(len(train_loader)/2, 1e-6,1e-3)
-    bae_model.fit(train_loader,num_epochs=1, mode="sigma", sigma_train="separate")
-
+    bae_model.scheduler_enabled = False #need to set scheduler off
+    bae_model.learning_rate_sig = 1e-5 #set it to constant learning rate
+    bae_model.fit(train_loader,num_epochs=5, mode="sigma", sigma_train="separate")
 
 #for each model, evaluate and plot:
 bae_models = [bae_model]
