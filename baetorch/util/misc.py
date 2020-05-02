@@ -34,5 +34,14 @@ def save_bae_model(model,folder="pickles/"):
     pickle.dump(model, open(folder+model.model_name+".p", "wb"))
 
 def load_bae_model(model_name, folder="pickles/"):
-    bae_model = pickle.load( open(folder+model_name+".p", "rb"))
+    #add '.p' to filename if not already
+    if ".p" not in model_name:
+        model_name = model_name+".p"
+    #add "/" to folder path, if not already
+    if folder[-1] != '/':
+        folder = folder+"/"
+    #load pickled model
+    bae_model = pickle.load( open(folder+model_name, "rb"))
     return bae_model
+
+
