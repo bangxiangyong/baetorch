@@ -44,4 +44,11 @@ def load_bae_model(model_name, folder="pickles/"):
     bae_model = pickle.load( open(folder+model_name, "rb"))
     return bae_model
 
+def save_csv_pd(results_pd,folder="results",train_set_name="FashionMNIST",title="auroc"):
+    create_dir(folder)
+    save_path = folder+"/"+train_set_name+"_"+title+".csv"
+    csv_exists = os.path.exists(save_path)
+    csv_mode = 'a' if csv_exists else 'w'
+    header_mode = False if csv_exists else True
+    results_pd.to_csv(save_path, mode=csv_mode, header=header_mode, index=False)
 
