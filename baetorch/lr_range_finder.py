@@ -36,7 +36,7 @@ def plot_learning_rate_finder(X, y, gp_mean,negative_peaks,minimum_lr,maximum_lr
 
 def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate",
                       min_lr_range=0.0000001, max_lr_range=10,
-                      reset_params=False, plot=True, verbose=True, save_mecha="copy"):
+                      reset_params=False, plot=True, verbose=True, save_mecha="copy", run_full=False):
     #helper function
     def round_sig(x, sig=2):
         return round(x, sig-int(floor(log10(abs(x))))-1)
@@ -96,17 +96,27 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
                 if smoothen_loss <= current_minimum_loss:
                     current_minimum_loss = smoothen_loss
 
-                #stopping criteria
-                if ((np.abs(smoothen_loss) >= np.abs(current_minimum_loss)*4) or (smoothen_loss>loss_list[0]*1.25) and (batch_idx+1)>=(window_size+10)) or np.isnan(smoothen_loss):
-                    break
-                smoothen_loss_list.append(smoothen_loss)
                 if verbose:
-                    print("LRTest-Loss:{}".format(smoothen_loss))
+                    print("LRTest-Loss:"+str(smoothen_loss))
+
+                #break if loss is nan
+                if np.isnan(smoothen_loss):
+                    break
+
+                #append to list
+                smoothen_loss_list.append(smoothen_loss)
+
+                #stopping criteria
+                if run_full == False:
+                    if ((np.abs(smoothen_loss) >= np.abs(current_minimum_loss)*4) or (smoothen_loss>loss_list[0]*1.25) and (batch_idx+1)>=(window_size+10)):
+                        break
+
         #prevent nan
         if loss >= 1000:
             break
 
     smoothen_loss_list_scaled = (np.array(smoothen_loss_list)-np.min(smoothen_loss_list))/(smoothen_loss_list[0]-np.min(smoothen_loss_list))
+    smoothen_loss_list_scaled = np.clip((smoothen_loss_list_scaled),a_min=-100,a_max=2)
     lr_list_plot = (lr_list)[window_size-1:(len(smoothen_loss_list_scaled)+window_size-1)]
 
     #fit gaussian process to the loss/lr to get a smoothen shape
