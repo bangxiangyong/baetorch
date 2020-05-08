@@ -175,7 +175,14 @@ class VariationalDenseLayers(DenseLayers):
     def __init__(self, **kwargs):
         super(VariationalDenseLayers, self).__init__(**kwargs, layer_type = VariationalLinear)
 
+        self.activation_ids = []
+        for layer_id, layer in enumerate(self.layers):
+            if isinstance(layer,VariationalLinear) == False:
+                self.activation_ids.append(layer_id)
+        self.last_layer_id = len(self.layers)-1
+
     def forward(self,x):
+        #if its a tuple, we expect it to carry the total_kl_loss from previous layer
         if isinstance(x,tuple):
             x, total_kl_loss = x
             total_kl_loss = total_kl_loss[0]
@@ -183,15 +190,17 @@ class VariationalDenseLayers(DenseLayers):
             total_kl_loss = Variable(torch.tensor([0.]))
             if self.use_cuda:
                 total_kl_loss = total_kl_loss.cuda()
-        #apply relu
+
         for layer_index,layer in enumerate(self.layers):
-            if layer_index ==0:
-                #first layer
-                x,kl_loss = layer(x)
+            #if activation layer, the return does not include kl_loss
+            if layer_index in self.activation_ids:
+                x = layer(x)
+            #otherwise, the layer is variational layer, it returns kl_loss
+            #we add the kl_loss to total
             else:
-                #other than first layer
-                x,kl_loss = layer(F.relu(x))
-            total_kl_loss=total_kl_loss+kl_loss
+                x, kl_loss = layer(x)
+                total_kl_loss=total_kl_loss+kl_loss
+
         return x,total_kl_loss
 
 class BAE_VI(BAE_BaseClass):
@@ -210,24 +219,26 @@ class BAE_VI(BAE_BaseClass):
         #likelihood
         if y is None:
             y = x
-        if mode=="sigma":
+
+        #forward sample of autoencoder
+        if self.decoder_sigma_enabled:
             decoded_mu, decoded_sigma = autoencoder(x)
             y_pred_mu, kl_mu = decoded_mu
             y_pred_sig, kl_sig = decoded_sigma
-            nll = -self.log_gaussian_loss_logsigma_torch(flatten_torch(y_pred_mu), flatten_torch(y), flatten_torch(y_pred_sig))
             kl_loss = kl_mu+kl_sig
+        else:
+            y_pred_mu, kl_loss = autoencoder(x)
+
+        #get actual nll according to selected likelihood and mode
+        if mode=="sigma":
+            nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), flatten_torch(y_pred_sig))
         elif mode =="mu":
-            if self.decoder_sigma_enabled:
-                decoded_mu, decoded_sigma = autoencoder(x)
-                y_pred_mu, kl_loss = decoded_mu
-            else:
-                y_pred_mu, kl_loss = autoencoder(x)
-            nll = -self.log_gaussian_loss_logsigma_torch(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
+            nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
+
         return nll, kl_loss
 
     def criterion(self, autoencoder, x,y=None, mode="sigma"):
         #likelihood + kl_loss
-        # nll,kl_loss = self.nll_kl_loss(autoencoder,x,y,mode)
         for num_train_sample in range(self.num_train_samples):
             if num_train_sample == 0:
                 nll,kl_loss = self.nll_kl_loss(autoencoder,x,y,mode)
@@ -235,12 +246,10 @@ class BAE_VI(BAE_BaseClass):
                 nll_temp,kl_loss_temp = self.nll_kl_loss(autoencoder,x,y,mode)
                 nll = nll + nll_temp
                 kl_loss = kl_loss + kl_loss_temp
-
-        #divide by num_train_samples
         nll = nll/self.num_train_samples
         kl_loss = kl_loss/self.num_train_samples
 
-        return nll.mean()+kl_loss*self.weight_decay
+        return nll.mean() + (kl_loss*self.weight_decay)/x.shape[0]
 
     def _forward_latent_single(self,model,x):
         return model.encoder(x)[0]
@@ -279,8 +288,8 @@ class BAE_VI(BAE_BaseClass):
             exclude_params = ["activation_layer", "model_kwargs"]
             if key[0] != '_' and key not in exclude_params:
                 dense_params.update({key:val})
-        dense_dropout = VariationalDenseLayers(**dense_params)
-        return dense_dropout
+        converted_dense= VariationalDenseLayers(**dense_params)
+        return converted_dense
 
     def convert_layer(self, layer):
         if isinstance(layer,ConvLayers):
@@ -334,7 +343,6 @@ class VAE_Module(Autoencoder):
                 encoder_dense_layer = layer
 
                 if len(encoder_dense_layer.architecture) == 1:
-                    # encoder_architecture = encoder_dense_layer.architecture
                     latent_input_size = encoder_dense_layer.architecture[-1]
                     encoder_dense = torch.nn.Sequential(torch.nn.Linear(encoder_dense_layer.input_size, latent_input_size),torch.nn.ReLU())
                 elif len(encoder_dense_layer.architecture) == 0:
@@ -402,20 +410,40 @@ class VAE(BAE_VI):
         #likelihood
         if y is None:
             y = x
-        if mode=="sigma":
+
+        #forward sample of autoencoder
+        if self.decoder_sigma_enabled:
             y_pred_mu, y_pred_sig, kl_loss = autoencoder(x)
-            nll = -self.log_gaussian_loss_logsigma_torch(flatten_torch(y_pred_mu), flatten_torch(y), flatten_torch(y_pred_sig))
+        else:
+            y_pred_mu, kl_loss = autoencoder(x)
+
+        #get actual nll according to selected likelihood and mode
+        if mode=="sigma":
+            nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), flatten_torch(y_pred_sig))
         elif mode =="mu":
-            if self.decoder_sigma_enabled:
-                y_pred_mu, y_pred_sig, kl_loss = autoencoder(x)
-            else:
-                y_pred_mu, kl_loss = autoencoder(x)
-            nll = -self.log_gaussian_loss_logsigma_torch(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
+            nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
+
         return nll, kl_loss
 
     def criterion(self, autoencoder, x,y=None, mode="sigma"):
+        """
+        Note that the kl_loss is for the probablistic latent layer,
+        while prior_loss is for deterministic encoder and decoder(s)
+
+        """
+        # pass the data forward for num_train_samples times
+        for num_train_sample in range(self.num_train_samples):
+            if num_train_sample == 0:
+                nll,kl_loss = self.nll_kl_loss(autoencoder,x,y,mode)
+            else:
+                nll_temp,kl_loss_temp = self.nll_kl_loss(autoencoder,x,y,mode)
+                nll = nll + nll_temp
+                kl_loss = kl_loss + kl_loss_temp
+        nll = nll/self.num_train_samples
+        kl_loss = kl_loss/self.num_train_samples
+
         #likelihood + kl_loss
-        nll,kl_loss = self.nll_kl_loss(autoencoder,x,y,mode)
+        # nll,kl_loss = self.nll_kl_loss(autoencoder,x,y,mode)
 
         #prior loss
         prior_loss_encoder = self.log_prior_loss(model=autoencoder.encoder,weight_decay=self.weight_decay)
@@ -424,10 +452,7 @@ class VAE(BAE_VI):
         if self.decoder_sigma_enabled:
             prior_loss_decoder_sig = self.log_prior_loss(model=autoencoder.decoder_sig,weight_decay=self.weight_decay)
             prior_loss = prior_loss+prior_loss_decoder_sig.mean()
-        # return nll.mean()+kl_loss*self.weight_decay+prior_loss.mean()*self.weight_decay
-        return nll.mean()+kl_loss*self.weight_decay+prior_loss
-        return nll.mean(1).mean(0)+kl_loss/x.shape[0]+prior_loss/x.shape[0]
-        return nll.mean()
+        return nll.mean()+((kl_loss+prior_loss)/x.shape[0])*self.weight_decay
 
     def get_optimisers(self, autoencoder: Autoencoder, mode="mu", sigma_train="joint"):
         optimiser_list = self.get_optimisers_list(autoencoder, mode=mode, sigma_train=sigma_train)
