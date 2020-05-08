@@ -78,42 +78,45 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
     if verbose:
         print("Starting auto learning rate range finder")
 
-    for batch_idx, (data, target) in tqdm(enumerate(train_loader)):
-        bae_model.learning_rate = lr_list[batch_idx]
-        bae_model.learning_rate_sig = lr_list[batch_idx]
-        bae_model.set_optimisers(bae_model.autoencoder, mode=mode,sigma_train=sigma_train)
-        loss = bae_model.fit_one(x=data,y=data, mode=mode)
-        loss_list.append(loss)
-        if (batch_idx+1)>=window_size:
-            #first time, fill up with mean
-            if len(smoothen_loss_list) == 0:
-                smoothen_loss_list.append(np.mean(copy.copy(loss_list[0:window_size])))
-                current_minimum_loss = copy.copy(smoothen_loss_list[0])
-            else:
-            #calculate exponential ma
-                k = 2/(window_size+1)
-                smoothen_loss = (loss * k) + smoothen_loss_list[-1]*(1-k)
-                if smoothen_loss <= current_minimum_loss:
-                    current_minimum_loss = smoothen_loss
+    try:
+        for batch_idx, (data, target) in tqdm(enumerate(train_loader)):
+            bae_model.learning_rate = lr_list[batch_idx]
+            bae_model.learning_rate_sig = lr_list[batch_idx]
+            bae_model.set_optimisers(bae_model.autoencoder, mode=mode,sigma_train=sigma_train)
+            loss = bae_model.fit_one(x=data,y=data, mode=mode)
+            loss_list.append(loss)
+            if (batch_idx+1)>=window_size:
+                #first time, fill up with mean
+                if len(smoothen_loss_list) == 0:
+                    smoothen_loss_list.append(np.mean(copy.copy(loss_list[0:window_size])))
+                    current_minimum_loss = copy.copy(smoothen_loss_list[0])
+                else:
+                #calculate exponential ma
+                    k = 2/(window_size+1)
+                    smoothen_loss = (loss * k) + smoothen_loss_list[-1]*(1-k)
+                    if smoothen_loss <= current_minimum_loss:
+                        current_minimum_loss = smoothen_loss
 
-                if verbose:
-                    print("LRTest-Loss:"+str(smoothen_loss))
+                    if verbose:
+                        print("LRTest-Loss:"+str(smoothen_loss))
 
-                #break if loss is nan
-                if np.isnan(smoothen_loss):
-                    break
-
-                #append to list
-                smoothen_loss_list.append(smoothen_loss)
-
-                #stopping criteria
-                if run_full == False:
-                    if ((np.abs(smoothen_loss) >= np.abs(current_minimum_loss)*4) or (smoothen_loss>loss_list[0]*1.25) and (batch_idx+1)>=(window_size+10)):
+                    #break if loss is nan
+                    if np.isnan(smoothen_loss):
                         break
 
-        #prevent nan
-        if loss >= 1000:
-            break
+                    #append to list
+                    smoothen_loss_list.append(smoothen_loss)
+
+                    #stopping criteria
+                    if run_full == False:
+                        if ((np.abs(smoothen_loss) >= np.abs(current_minimum_loss*4)) or (smoothen_loss>loss_list[0]*1.25)) and (batch_idx+1)>=(window_size+10):
+                            break
+
+            #prevent nan
+            if np.isnan(loss):
+                break
+    except Exception as e:
+        print(e)
 
     smoothen_loss_list_scaled = (np.array(smoothen_loss_list)-np.min(smoothen_loss_list))/(smoothen_loss_list[0]-np.min(smoothen_loss_list))
     smoothen_loss_list_scaled = np.clip((smoothen_loss_list_scaled),a_min=-100,a_max=2)
