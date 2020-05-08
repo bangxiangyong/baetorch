@@ -450,6 +450,7 @@ class BAE_BaseClass():
         self.scheduler_enabled = scheduler_enabled
         self.likelihood = likelihood
         self.denoising_factor = denoising_factor
+        self.num_iterations = 1
 
         #set output clamp
         if output_clamp == (0,0):
@@ -715,6 +716,9 @@ class BAE_BaseClass():
 
         #handle train loader
         if isinstance(x, torch.utils.data.dataloader.DataLoader):
+            #save the number of iterations for KL weighting later
+            self.num_iterations = len(x)
+
             for epoch in tqdm(range(num_epochs)):
                 temp_loss = []
                 for batch_idx, (data, target) in enumerate(x):
@@ -768,12 +772,14 @@ class BAE_BaseClass():
     def criterion(self, autoencoder: Autoencoder, x,y=None, mode="sigma"):
         #likelihood
         nll = self.nll(autoencoder,x,y,mode)
+        nll = nll.mean()
 
         #prior loss
         prior_loss = self.log_prior_loss(model=autoencoder,weight_decay=self.weight_decay)
+        prior_loss = prior_loss.mean()
+        prior_loss /= self.num_iterations
 
-        # return nll.mean()+prior_loss.sum()/x.shape[0]
-        return nll.mean()
+        return nll + prior_loss
 
     def _predict_samples(self,x, model_type=0):
         """
