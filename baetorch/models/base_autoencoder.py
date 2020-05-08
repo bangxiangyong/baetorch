@@ -741,10 +741,10 @@ class BAE_BaseClass():
             nll = self.log_cbernoulli_loss_torch(flatten_torch(y_pred_mu), flatten_torch(y))
         return nll
 
-    def log_cbernoulli_loss_torch(self, y_pred_mu, y_true, mode="pytorch"):
+    def log_cbernoulli_loss_torch(self, y_pred_mu, y_true):
         if hasattr(self, "cb") == False:
             self.cb = CB_Distribution()
-        nll_cb = self.cb.log_cbernoulli_loss_torch(y_pred_mu,y_true, mode="pytorch")
+        nll_cb = self.cb.log_cbernoulli_loss_torch(y_pred_mu,y_true)
         return nll_cb
 
     def log_cbernoulli_loss_np(self, y_pred_mu, y_true):
