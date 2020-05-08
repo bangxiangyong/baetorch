@@ -43,10 +43,16 @@ class DenseDropoutLayers(DenseLayers):
 
 #Model Manager
 class BAE_MCDropout(BAE_BaseClass):
-    def __init__(self,*args, model_name="BAE_MCDropout", num_train_samples=5,dropout_p=0.1, **kwargs):
+    def __init__(self,*args, model_name="BAE_MCDropout", num_train_samples=5,dropout_p=0.1, alpha=1., **kwargs):
         self.num_train_samples = num_train_samples #for training averaging
         self.dropout_p = dropout_p
+        self.alpha = alpha
         super(BAE_MCDropout, self).__init__(*args, model_name=model_name, model_type="stochastic", **kwargs)
+
+    def log_prior_loss(self, model, mu=torch.Tensor([0.]), weight_decay=0.01, L=2):
+        prior_loss = super(BAE_MCDropout, self).log_prior_loss(model,mu,weight_decay,L)
+        prior_loss *= (1.0 - self.dropout_p)
+        return prior_loss
 
     def criterion(self, autoencoder, x,y=None, mode="mu"):
         """
