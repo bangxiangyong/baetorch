@@ -249,7 +249,12 @@ class BAE_VI(BAE_BaseClass):
         nll = nll/self.num_train_samples
         kl_loss = kl_loss/self.num_train_samples
 
-        return nll.mean() + (kl_loss*self.weight_decay)/x.shape[0]
+        #normalise by number of mini batches
+        kl_loss /= self.num_iterations
+        kl_loss *= self.weight_decay
+        nll = nll.mean()
+
+        return nll + kl_loss
 
     def _forward_latent_single(self,model,x):
         return model.encoder(x)[0]
@@ -431,7 +436,7 @@ class VAE(BAE_VI):
         while prior_loss is for deterministic encoder and decoder(s)
 
         """
-        # pass the data forward for num_train_samples times
+        # pass the data forward for num_train_samples times and obtain average loss
         for num_train_sample in range(self.num_train_samples):
             if num_train_sample == 0:
                 nll,kl_loss = self.nll_kl_loss(autoencoder,x,y,mode)
@@ -439,20 +444,28 @@ class VAE(BAE_VI):
                 nll_temp,kl_loss_temp = self.nll_kl_loss(autoencoder,x,y,mode)
                 nll = nll + nll_temp
                 kl_loss = kl_loss + kl_loss_temp
-        nll = nll/self.num_train_samples
-        kl_loss = kl_loss/self.num_train_samples
+        nll /= self.num_train_samples
+        kl_loss /= self.num_train_samples
 
-        #likelihood + kl_loss
-        # nll,kl_loss = self.nll_kl_loss(autoencoder,x,y,mode)
+        #obtain mean of likelihood cost
+        nll = nll.mean()
 
-        #prior loss
-        prior_loss_encoder = self.log_prior_loss(model=autoencoder.encoder,weight_decay=self.weight_decay)
-        prior_loss_decoder = self.log_prior_loss(model=autoencoder.decoder_mu,weight_decay=self.weight_decay)
-        prior_loss = prior_loss_encoder.mean()+prior_loss_decoder.mean()
+        #prior loss of encoder/decoder
+        #note this doesn't include the latent layers
+        #for kl loss already includes complexity cost due to prior on latent layers
+        prior_loss_encoder = self.log_prior_loss(model=autoencoder.encoder,weight_decay=self.weight_decay).mean()
+        prior_loss_decoder = self.log_prior_loss(model=autoencoder.decoder_mu,weight_decay=self.weight_decay).mean()
+        prior_loss = prior_loss_encoder+prior_loss_decoder
         if self.decoder_sigma_enabled:
-            prior_loss_decoder_sig = self.log_prior_loss(model=autoencoder.decoder_sig,weight_decay=self.weight_decay)
-            prior_loss = prior_loss+prior_loss_decoder_sig.mean()
-        return nll.mean()+((kl_loss+prior_loss)/x.shape[0])*self.weight_decay
+            prior_loss_decoder_sig = self.log_prior_loss(model=autoencoder.decoder_sig,weight_decay=self.weight_decay).mean()
+            prior_loss = prior_loss+prior_loss_decoder_sig
+
+        #normalise by number of mini batches
+        kl_loss /= self.num_iterations
+        kl_loss *= self.weight_decay
+        prior_loss /= self.num_iterations
+
+        return nll+kl_loss+prior_loss
 
     def get_optimisers(self, autoencoder: Autoencoder, mode="mu", sigma_train="joint"):
         optimiser_list = self.get_optimisers_list(autoencoder, mode=mode, sigma_train=sigma_train)
