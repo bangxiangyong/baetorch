@@ -59,6 +59,8 @@ class ConvLayers(torch.nn.Module):
         self.conv_kernel = self.convert_int_to_list(self.conv_kernel,len(self.conv_architecture)-1)
         self.conv_stride = self.convert_int_to_list(self.conv_stride,len(self.conv_architecture)-1)
         self.input_dim = input_dim
+        self.activation = activation
+        self.last_activation = last_activation
 
         #forward and deconvolutional layer type
         self.conv2d_layer_type = layer_type[0]
@@ -249,27 +251,40 @@ class Reshape(torch.nn.Module):
             y = x.view(x.size()[0], *tuple(self.size))
             return y
 
-def infer_decoder(encoder=[],latent_dim=None, last_activation="sigmoid"):
+def infer_decoder(encoder=[],latent_dim=None, last_activation="sigmoid", activation=None):
     decoder=[]
     has_conv_layer = False
+
+    #encoder layers
     for encoder_layer in encoder:
-        if isinstance(encoder_layer,ConvLayers):
+        if isinstance(encoder_layer, ConvLayers):
+           #set the activation
+           if activation is None:
+               activation = encoder_layer.activation
+
            conv_transpose_inchannels, conv_transpose_input_dim = encoder_layer.get_output_dimensions(flatten=False)[-1]
-           decoder_conv= ConvLayers(input_dim=conv_transpose_input_dim, conv_architecture=encoder_layer.conv_architecture,
+           decoder_conv = ConvLayers(input_dim=conv_transpose_input_dim, conv_architecture=encoder_layer.conv_architecture,
                                     conv_kernel=encoder_layer.conv_kernel,
                                     conv_stride=encoder_layer.conv_stride,
                                     conv_padding=encoder_layer.conv_padding,
                                     output_padding=encoder_layer.output_padding,
+                                    activation=activation,
                                     upsampling=True, last_activation=last_activation)
            decoder.append(decoder_conv)
            has_conv_layer = True
-        if isinstance(encoder_layer,DenseLayers):
+
+        elif isinstance(encoder_layer, DenseLayers):
+            #set the activation
+            if activation is None:
+                activation = encoder_layer.activation
             dense_architecture = copy.deepcopy(encoder_layer.architecture)
             if latent_dim is None:
                 latent_dim = copy.deepcopy(encoder_layer.output_size)
 
             dense_architecture.reverse()
-            decoder_dense= DenseLayers(architecture=dense_architecture,input_size=latent_dim, output_size=encoder_layer.input_size, last_activation=last_activation)
+            decoder_dense= DenseLayers(architecture=dense_architecture,input_size=latent_dim,
+                                       output_size=encoder_layer.input_size,
+                                       activation=activation, last_activation=last_activation)
             decoder.append(decoder_dense)
 
     #has convolutional layer, add a reshape layer before the conv layer
@@ -706,8 +721,6 @@ class BAE_BaseClass():
                     loss = self.fit_one(x=data,y=data, mode=mode)
                     temp_loss.append(loss)
                     self.losses.append(np.mean(temp_loss))
-                    # if batch_idx == 100:
-                    #     break
                 self.print_loss(epoch,self.losses[-1])
 
         else:
