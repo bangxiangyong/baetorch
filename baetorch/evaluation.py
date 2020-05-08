@@ -48,6 +48,10 @@ def calc_fpr80(fpr,tpr):
         return 1
 
 def calc_auroc(results_test,results_ood, exclude_keys=[]):
+    """
+    Given predictions on test and OOD, calculate the AUROC score.
+    Returns the AUROC,FPR80 and each metric name (epistemic, NLL, etc) used
+    """
     #exclude mu and input
     exclude_keys.append("mu")
     exclude_keys.append("input")
