@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from baetorch.util.misc import parse_activation
 
 def compute_entropy(vector_s):
     return (np.log(vector_s)*vector_s).sum()*-1
@@ -34,7 +35,13 @@ def parse_layer_size(input_size,layer_string):
         output_size = int(layer_string)
     return output_size
 
-def parse_architecture_string(input_size,output_size, architecture, layer_type=torch.nn.Linear):
+def append_activation(layers,activation):
+    activation_layer = parse_activation(activation)
+    if activation_layer is not None:
+        layers.append(activation_layer)
+    return layers
+
+def parse_architecture_string(input_size,output_size, architecture, layer_type=torch.nn.Linear, activation="relu", last_activation="none"):
     """
     Parses a list of string representing the hidden layer sizes with option for operator to get the magnitude
     For example: `input_size` of 10, `output_size` of 1, and `architecture` of ["d2","x3"]
@@ -65,20 +72,29 @@ def parse_architecture_string(input_size,output_size, architecture, layer_type=t
             if layer_index ==0:
                 first_layer = layer_type(input_size, parse_layer_size(input_size, layer_string))
                 layers.append(first_layer)
+                layers = append_activation(layers,activation)
+
                 #special case if there's only a single hidden layer
                 if len(architecture) == 1:
                     last_layer = layer_type(parse_layer_size(input_size, layer_string), output_size)
                     layers.append(last_layer)
+
+                    #last activation layer
+                    layers = append_activation(layers,last_activation)
+
             elif layer_index == (len(architecture)-1):
                 new_layer = layer_type(parse_layer_size(input_size, architecture[layer_index-1]),
                                                 parse_layer_size(input_size, layer_string))
                 last_layer = layer_type(parse_layer_size(input_size, layer_string), output_size)
                 layers.append(new_layer)
+                layers = append_activation(layers,activation)
                 layers.append(last_layer)
+                layers = append_activation(layers,last_activation)
             else:
                 new_layer = layer_type(parse_layer_size(input_size, architecture[layer_index-1]),
                                                 parse_layer_size(input_size, layer_string))
                 layers.append(new_layer)
+                layers = append_activation(layers,activation)
     return layers
 
 def convert_chol_tril(chol_tril):

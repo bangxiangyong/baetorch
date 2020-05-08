@@ -34,22 +34,21 @@ import copy
 from torch.nn import Parameter
 import torch.nn.functional as F
 import baetorch.util.dense_util as bnn_utils
+from baetorch.util.misc import create_dir
 import numpy as np
 from baetorch.util.conv2d_util import calc_required_padding, calc_flatten_conv2d_forward_pass, calc_flatten_conv2dtranspose_forward_pass
 from torch.autograd import Variable
 from tqdm import tqdm
 from sklearn.decomposition import PCA
-import os
-
-def create_dir(folder="plots"):
-    if os.path.exists(folder) == False:
-        os.mkdir(folder)
+from baetorch.util.misc import parse_activation
+from baetorch.util.distributions import CB_Distribution
+import math
 
 ###TORCH BASE MODULES###
 class ConvLayers(torch.nn.Module):
     def __init__(self, input_dim=28, conv_architecture=[1,32,64], conv_kernel=3,
                  conv_stride=1,conv_padding=2, reverse_params=True,
-                 mpool_kernel=2,mpool_stride=2, output_padding=[], use_cuda=False,
+                 mpool_kernel=2,mpool_stride=2, output_padding=[], use_cuda=False, activation="relu",
                  upsampling=False, last_activation="sigmoid", layer_type=[torch.nn.Conv2d, torch.nn.ConvTranspose2d]):
         super(ConvLayers, self).__init__()
         self.layers = []
@@ -66,7 +65,6 @@ class ConvLayers(torch.nn.Module):
         self.conv2d_trans_layer_type = layer_type[1]
 
         if len(output_padding) ==0:
-            print("YES")
             self.conv_padding, self.output_padding = calc_required_padding(input_dim_init=input_dim, kernels=conv_kernel, strides=conv_stride,verbose=True)
         else:
             self.conv_padding = self.convert_int_to_list(self.conv_padding,len(self.conv_architecture)-1)
@@ -88,16 +86,9 @@ class ConvLayers(torch.nn.Module):
 
                 #activation of last layer
                 if channel_id == (len(self.conv_architecture)-2) and self.upsampling:
-                    if last_activation == 'sigmoid':
-                        activation = torch.nn.Sigmoid()
-                    elif last_activation == 'tanh':
-                        activation = torch.nn.Tanh()
-                    elif last_activation == 'relu':
-                        activation = torch.nn.ReLU()
-                    elif last_activation == 'none':
-                        activation = None
+                    activation = parse_activation(last_activation)
                 else:
-                    activation = torch.nn.ReLU()
+                    activation = parse_activation(activation)
 
                 #standard convolutional
                 if self.upsampling == False:
@@ -157,9 +148,8 @@ class ConvLayers(torch.nn.Module):
             x = layer(x)
         return x
 
-
 class DenseLayers(torch.nn.Module):
-    def __init__(self, input_size=1, output_size=1, architecture=["d1","d1"], activation="relu", use_cuda=False, init_log_noise=1e-3,
+    def __init__(self, input_size=1, output_size=1, architecture=["d1","d1"], activation="relu", use_cuda=False, init_log_noise=1e-3, last_activation="none",
                  layer_type=torch.nn.Linear, log_noise_size=1, **kwargs):
         super(DenseLayers, self).__init__()
         self.architecture = architecture
@@ -167,12 +157,16 @@ class DenseLayers(torch.nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.init_log_noise = init_log_noise
+        self.last_activation = last_activation
+        self.activation = activation
+
         #parse architecture string and add
         self.layers = self.init_layers(layer_type)
         self.log_noise_size=log_noise_size
         self.set_log_noise(self.init_log_noise,log_noise_size=log_noise_size)
         self.model_kwargs = kwargs
-        self.activation = activation
+
+
 
         #handle activation layers
         if isinstance(activation,str) and activation == "relu":
@@ -181,6 +175,7 @@ class DenseLayers(torch.nn.Module):
             self.activation_layer = torch.tanh
         else:
             self.activation_layer = activation
+
 
     def get_input_dimensions(self):
         return self.input_size
@@ -191,7 +186,7 @@ class DenseLayers(torch.nn.Module):
         else:
             self.log_noise = Parameter(torch.FloatTensor([[np.log(log_noise)]*log_noise_size]))
 
-    def init_layers(self, layer_type=torch.nn.Linear, architecture=None, input_size=None,output_size=None):
+    def init_layers(self, layer_type=torch.nn.Linear, architecture=None, input_size=None,output_size=None, last_activation=None):
         #resort to default input_size
         if input_size is None:
             input_size = self.input_size
@@ -201,12 +196,16 @@ class DenseLayers(torch.nn.Module):
             output_size = self.output_size
         else:
             self.output_size = output_size
+        if last_activation is None:
+            last_activation = self.last_activation
+        else:
+            self.last_activation = last_activation
 
         #resort to default architecture
         if architecture is None:
-            layers = bnn_utils.parse_architecture_string(input_size,output_size, self.architecture, layer_type=layer_type)
+            layers = bnn_utils.parse_architecture_string(input_size,output_size, self.architecture, layer_type=layer_type, last_activation=last_activation)
         else:
-            layers = bnn_utils.parse_architecture_string(input_size,output_size, architecture, layer_type=layer_type)
+            layers = bnn_utils.parse_architecture_string(input_size,output_size, architecture, layer_type=layer_type, last_activation=last_activation)
 
         if self.use_cuda:
             layers = torch.nn.ModuleList(layers).cuda()
@@ -217,12 +216,7 @@ class DenseLayers(torch.nn.Module):
     def forward(self,x):
         #apply relu
         for layer_index,layer in enumerate(self.layers):
-            if layer_index ==0:
-                #first layer
-                x = layer(x)
-            else:
-                #other than first layer
-                x = layer(self.activation_layer(x))
+            x = layer(x)
         return x
 
 def flatten_torch(x):
@@ -275,7 +269,7 @@ def infer_decoder(encoder=[],latent_dim=None, last_activation="sigmoid"):
                 latent_dim = copy.deepcopy(encoder_layer.output_size)
 
             dense_architecture.reverse()
-            decoder_dense= DenseLayers(architecture=dense_architecture,input_size=latent_dim, output_size=encoder_layer.input_size)
+            decoder_dense= DenseLayers(architecture=dense_architecture,input_size=latent_dim, output_size=encoder_layer.input_size, last_activation=last_activation)
             decoder.append(decoder_dense)
 
     #has convolutional layer, add a reshape layer before the conv layer
@@ -422,7 +416,7 @@ class Autoencoder(torch.nn.Module):
 class BAE_BaseClass():
     def __init__(self, autoencoder=Autoencoder, num_samples=100, anchored=False, weight_decay=0.01,
                  num_epochs=10, verbose=True, use_cuda=False, task="regression", learning_rate=0.01, learning_rate_sig=None,
-                 homoscedestic_mode="none", model_type="stochastic", model_name="BAE", scheduler_enabled=False, likelihood="gaussian", denoising_factor=0):
+                 homoscedestic_mode="none", model_type="stochastic", model_name="BAE", scheduler_enabled=False, likelihood="gaussian", denoising_factor=0, output_clamp=(-10,10)):
 
         #save kwargs
         self.num_samples = num_samples
@@ -441,6 +435,13 @@ class BAE_BaseClass():
         self.scheduler_enabled = scheduler_enabled
         self.likelihood = likelihood
         self.denoising_factor = denoising_factor
+
+        #set output clamp
+        if output_clamp == (0,0):
+            self.output_clamp = False
+        else:
+            self.output_clamp = output_clamp
+
         if learning_rate_sig is None:
             self.learning_rate_sig = learning_rate
         else:
@@ -605,6 +606,10 @@ class BAE_BaseClass():
         else:
             self.scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimisers, step_size_up=half_iterations, base_lr=min_lr, max_lr=max_lr, cycle_momentum=False)
         self.scheduler_enabled = True
+
+        #set init learning rate
+        self.learning_rate = self.min_lr
+        self.learning_rate_sig = self.min_lr
         return self.scheduler
 
     def set_learning_rate(self, learning_rate=None):
@@ -700,7 +705,9 @@ class BAE_BaseClass():
                 for batch_idx, (data, target) in enumerate(x):
                     loss = self.fit_one(x=data,y=data, mode=mode)
                     temp_loss.append(loss)
-                self.losses.append(np.mean(temp_loss))
+                    self.losses.append(np.mean(temp_loss))
+                    # if batch_idx == 100:
+                    #     break
                 self.print_loss(epoch,self.losses[-1])
 
         else:
@@ -714,20 +721,36 @@ class BAE_BaseClass():
         #likelihood
         if y is None:
             y = x
-        if mode=="sigma":
+        if self.decoder_sigma_enabled:
             y_pred_mu, y_pred_sig = autoencoder(x)
-            nll = -self.log_gaussian_loss_logsigma_torch(flatten_torch(y_pred_mu), flatten_torch(y), flatten_torch(y_pred_sig))
+        if mode=="sigma":
+            nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), flatten_torch(y_pred_sig))
         elif mode =="mu":
-            if self.decoder_sigma_enabled:
-                y_pred_mu, y_pred_sig = autoencoder(x)
-            else:
-                y_pred_mu = autoencoder(x)
-
-            if self.likelihood == "gaussian":
-                nll = -self.log_gaussian_loss_logsigma_torch(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
-            else:
-                nll = F.binary_cross_entropy(flatten_torch(y_pred_mu), flatten_torch(y))
+            y_pred_mu = autoencoder(x)
+            nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
         return nll
+
+    def _nll(self, y_pred_mu, y, y_pred_sig=None):
+        if self.likelihood == "gaussian":
+            nll = -self.log_gaussian_loss_logsigma_torch(flatten_torch(y_pred_mu), flatten_torch(y), y_pred_sig)
+        elif self.likelihood == "laplace":
+            nll = torch.abs(flatten_torch(y_pred_mu)- flatten_torch(y))
+        elif self.likelihood == "bernoulli":
+            nll = F.binary_cross_entropy(flatten_torch(y_pred_mu), flatten_torch(y), reduction="none")
+        elif self.likelihood == "cbernoulli":
+            nll = self.log_cbernoulli_loss_torch(flatten_torch(y_pred_mu), flatten_torch(y))
+        return nll
+
+    def log_cbernoulli_loss_torch(self, y_pred_mu, y_true, mode="pytorch"):
+        if hasattr(self, "cb") == False:
+            self.cb = CB_Distribution()
+        nll_cb = self.cb.log_cbernoulli_loss_torch(y_pred_mu,y_true, mode="pytorch")
+        return nll_cb
+
+    def log_cbernoulli_loss_np(self, y_pred_mu, y_true):
+        if hasattr(self, "cb") == False:
+            self.cb = CB_Distribution()
+        return self.cb.log_cbernoulli_loss_np(torch.from_numpy(y_pred_mu),torch.from_numpy(y_true))
 
     def criterion(self, autoencoder: Autoencoder, x,y=None, mode="sigma"):
         #likelihood
@@ -736,7 +759,8 @@ class BAE_BaseClass():
         #prior loss
         prior_loss = self.log_prior_loss(model=autoencoder,weight_decay=self.weight_decay)
 
-        return nll.mean()+prior_loss.mean()
+        # return nll.mean()+prior_loss.sum()/x.shape[0]
+        return nll.mean()
 
     def _predict_samples(self,x, model_type=0):
         """
@@ -840,8 +864,8 @@ class BAE_BaseClass():
         var_samples = raw_samples.var(0)
 
         #compute statistics of model outputs
-        y_mu_mean, y_sigma_mean, se_mean,bce_mean, nll_homo_mean,nll_sigma_mean = mean_samples
-        y_mu_var, y_sigma_var, se_var,bce_var, nll_homo_var,nll_sigma_var= var_samples
+        y_mu_mean, y_sigma_mean, se_mean,bce_mean,cbce_mean, nll_homo_mean,nll_sigma_mean = mean_samples
+        y_mu_var, y_sigma_var, se_var,bce_var,cbce_var, nll_homo_var,nll_sigma_var= var_samples
 
         #total uncertainty = epistemic+aleatoric
         if self.decoder_sigma_enabled:
@@ -858,6 +882,7 @@ class BAE_BaseClass():
 
         #bce loss
         waic_bce = bce_mean+bce_var
+        waic_cbce = cbce_mean+cbce_var
 
         #filter out unnecessary outputs based on model settings of computing aleatoric uncertainty
         if self.decoder_sigma_enabled == False:
@@ -870,6 +895,7 @@ class BAE_BaseClass():
         return_dict= {"input":x,"mu":y_mu_mean, "epistemic":y_mu_var,
                 "aleatoric":y_sigma_mean,"aleatoric_var":y_sigma_var,
                 "total_unc":total_unc, "bce_mean":bce_mean, "bce_var":bce_var, "bce_waic":waic_bce,
+                "cbce_mean":cbce_mean, "cbce_var":cbce_var, "cbce_waic":waic_cbce,
                 "se_mean":se_mean, "se_var":se_var, "se_waic":waic_se,
                 "nll_homo_mean":nll_homo_mean, "nll_homo_var":nll_homo_var, "nll_homo_waic":waic_homo,
                 "nll_sigma_mean":nll_sigma_mean, "nll_sigma_var":nll_sigma_var, "nll_sigma_waic":waic_nll
@@ -882,6 +908,11 @@ class BAE_BaseClass():
         bce = -(y_true*np.log(y_pred) + (1-y_true)*np.log(1-y_pred))
         bce = np.nan_to_num(bce, nan=0,posinf=100,neginf=-100)
         return bce
+
+    def cbce_loss_np(self,y_pred,y_true):
+        cbce = self.log_cbernoulli_loss_np(y_pred,y_true)
+        cbce = np.nan_to_num(cbce, nan=0,posinf=100,neginf=-100)
+        return cbce
 
     def _get_mu_sigma_single(self, autoencoder, x):
         if self.decoder_sigma_enabled:
@@ -900,13 +931,18 @@ class BAE_BaseClass():
     def _calc_output_single(self, autoencoder, x):
         #per sample
         y_mu, y_sigma, log_noise = self._get_mu_sigma_single(autoencoder, x)
+
+        #clamp it to min max
+        y_mu = np.clip(y_mu, a_min=self.output_clamp[0],a_max=self.output_clamp[1])
+
         x = flatten_np(x.detach().cpu().numpy())
         se = (y_mu-x)**2
         bce = self.bce_loss_np(y_mu,x)
+        cbce = self.cbce_loss_np(y_mu,x)
         nll_homo = -self.log_gaussian_loss_logsigma_np(y_mu,x,log_noise)
         nll_sigma = -self.log_gaussian_loss_logsigma_np(y_mu,x,y_sigma)
 
-        return y_mu, np.exp(y_sigma), se,bce, nll_homo,nll_sigma
+        return y_mu, np.exp(y_sigma), se,bce,cbce, nll_homo,nll_sigma
 
     def log_gaussian_loss_logsigma_torch(self, y_pred, y_true, log_sigma):
         log_likelihood = (-((y_true - y_pred)**2)*torch.exp(-log_sigma)*0.5)-(0.5*log_sigma)
@@ -983,7 +1019,7 @@ class BAE_BaseClass():
 
     def predict_latent(self, x, transform_pca=True):
         """
-        Since BAE is probabilistic, we can obtain mean and variance of the latent dimensions for each pass of data
+        Since BAE is probabilistic, we can obtain mean and variance of the latent dimensions for each data
         """
         x = self.convert_tensor(x)
         latent_data = self.predict_latent_samples(x)

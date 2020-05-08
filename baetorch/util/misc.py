@@ -1,6 +1,7 @@
 import torch
 import os
 import pickle
+import copy
 
 def create_dir(folder="plots"):
     if os.path.exists(folder) == False:
@@ -10,6 +11,22 @@ def get_sample_dataloader(data_loader):
     dataiter = iter(data_loader)
     batch_data = dataiter.next()
     return batch_data[0], batch_data[1]
+
+def parse_activation(activation="relu"):
+    if isinstance(activation, str):
+        if activation == 'sigmoid':
+            activation = torch.nn.Sigmoid()
+        elif activation == 'tanh':
+            activation = torch.nn.Tanh()
+        elif activation == 'relu':
+            activation = torch.nn.ReLU()
+        elif activation == 'leakyrelu':
+            activation = torch.nn.LeakyReLU()
+        elif activation == 'none':
+            activation = None
+    else:
+        activation = copy.deepcopy(activation)
+    return activation
 
 class AddNoise(object):
     def __init__(self, noise_factor=0.05):
