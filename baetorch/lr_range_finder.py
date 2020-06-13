@@ -6,6 +6,8 @@ import copy
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF
 from tqdm import tqdm
+from baetorch.util.misc import create_dir
+
 
 def plot_learning_rate_iterations(train_batch_number, lr_list):
     plt.figure()
@@ -36,7 +38,7 @@ def plot_learning_rate_finder(X, y, gp_mean,negative_peaks,minimum_lr,maximum_lr
 
 def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate",
                       min_lr_range=0.0000001, max_lr_range=10,
-                      reset_params=False, plot=True, verbose=True, save_mecha="copy", run_full=False):
+                      reset_params=False, plot=True, verbose=True, save_mecha="copy", run_full=False, savefile="", savefolder="plots"):
     #helper function
     def round_sig(x, sig=2):
         return round(x, sig-int(floor(log10(abs(x))))-1)
@@ -109,8 +111,16 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
 
                     #stopping criteria
                     if run_full == False:
-                        if ((np.abs(smoothen_loss) >= np.abs(current_minimum_loss*4)) or (smoothen_loss>loss_list[0]*1.25)) and (batch_idx+1)>=(window_size+10):
-                            break
+                        if (batch_idx+1)>=(window_size+10):
+                            #more robust early stopping criteria for lr search
+                            #by checking on signage of first loss
+                            #instead of relying purely on magnitude (i.e np.abs)
+                            #which can be spurious when the signs are negative
+                            if np.sign(loss_list[0]) >= 0:
+                                if smoothen_loss>=(loss_list[0]*2):
+                                    break
+                            elif smoothen_loss>=(loss_list[0]/2):
+                                break
 
             #prevent nan
             if np.isnan(loss):
@@ -151,6 +161,12 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
         print(min_max_lr_text)
     if plot:
         plot_learning_rate_finder(X,y,gp_mean,negative_peaks, minimum_lr,maximum_lr)
+
+        #option to save plot
+        if '.png' in savefile:
+            create_dir(savefolder)
+            plt.savefig(savefolder+"/"+savefile)
+
 
     #reset the model again after training
     if reset_params:
