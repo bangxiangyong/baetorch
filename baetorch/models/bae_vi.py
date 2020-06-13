@@ -1,4 +1,4 @@
-from baetorch.models.base_autoencoder import ConvLayers, DenseLayers, BAE_BaseClass, Autoencoder, flatten_torch, flatten_np, Encoder
+from ..models.base_autoencoder import ConvLayers, DenseLayers, BAE_BaseClass, Autoencoder, flatten_torch, flatten_np, Encoder
 import torch
 from torch.nn import Parameter
 import torch.nn.functional as F

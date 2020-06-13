@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn import metrics
-from baetorch.evaluation import calc_mean_results, calc_fpr80
+from .evaluation import calc_mean_results, calc_fpr80
 import scipy.stats as stats
 import torch
-from baetorch.util.misc import get_sample_dataloader, create_dir
+from .util.misc import get_sample_dataloader, create_dir
 
 #modularised plots and evaluation
 def plot_samples_img(data=[],plot_samples=10, reshape_size=None, savefile="", savefolder="plots"):

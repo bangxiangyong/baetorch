@@ -6,7 +6,7 @@ import copy
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF
 from tqdm import tqdm
-from baetorch.util.misc import create_dir
+from .util.misc import create_dir
 
 
 def plot_learning_rate_iterations(train_batch_number, lr_list):

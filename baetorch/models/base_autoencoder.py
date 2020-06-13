@@ -33,15 +33,15 @@ import torch
 import copy
 from torch.nn import Parameter
 import torch.nn.functional as F
-import baetorch.util.dense_util as bnn_utils
-from baetorch.util.misc import create_dir
+from ..util.dense_util import parse_architecture_string
+from ..util.misc import create_dir
 import numpy as np
-from baetorch.util.conv2d_util import calc_required_padding, calc_flatten_conv2d_forward_pass, calc_flatten_conv2dtranspose_forward_pass
+from ..util.conv2d_util import calc_required_padding, calc_flatten_conv2d_forward_pass, calc_flatten_conv2dtranspose_forward_pass
 from torch.autograd import Variable
 from tqdm import tqdm
 from sklearn.decomposition import PCA
-from baetorch.util.misc import parse_activation
-from baetorch.util.distributions import CB_Distribution
+from ..util.misc import parse_activation
+from ..util.distributions import CB_Distribution
 import math
 
 ###TORCH BASE MODULES###
@@ -205,9 +205,9 @@ class DenseLayers(torch.nn.Module):
 
         #resort to default architecture
         if architecture is None:
-            layers = bnn_utils.parse_architecture_string(input_size,output_size, self.architecture, layer_type=layer_type, last_activation=last_activation)
+            layers = parse_architecture_string(input_size,output_size, self.architecture, layer_type=layer_type, last_activation=last_activation)
         else:
-            layers = bnn_utils.parse_architecture_string(input_size,output_size, architecture, layer_type=layer_type, last_activation=last_activation)
+            layers = parse_architecture_string(input_size,output_size, architecture, layer_type=layer_type, last_activation=last_activation)
 
         if self.use_cuda:
             layers = torch.nn.ModuleList(layers).cuda()

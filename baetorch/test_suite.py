@@ -1,6 +1,6 @@
 import numpy as np
-from baetorch.plotting import plot_samples_img, plot_roc_curve, plot_prc_curve, plot_output_distribution, plot_calibration_curve, plot_train_loss
-from baetorch.evaluation import calc_auroc, calc_auprc, save_csv_metrics, save_csv_distribution, calc_variance_dataset
+from .plotting import plot_samples_img, plot_roc_curve, plot_prc_curve, plot_output_distribution, plot_calibration_curve, plot_train_loss, plot_latent
+from .evaluation import calc_auroc, calc_auprc, save_csv_metrics, save_csv_distribution, calc_variance_dataset
 
 def remove_nan(predict_res):
     predict_res['bce_mean'] = np.nan_to_num(predict_res['bce_mean'])

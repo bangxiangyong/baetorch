@@ -1,5 +1,5 @@
 import torch
-from baetorch.models.base_autoencoder import BAE_BaseClass
+from ..models.base_autoencoder import BAE_BaseClass
 
 #Ensemble
 class BAE_Ensemble(BAE_BaseClass):
