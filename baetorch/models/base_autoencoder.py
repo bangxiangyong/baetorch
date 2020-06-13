@@ -775,9 +775,9 @@ class BAE_BaseClass():
         nll = nll.mean()
 
         #prior loss
-        prior_loss = self.log_prior_loss(model=autoencoder,weight_decay=self.weight_decay)
+        prior_loss = self.log_prior_loss(model=autoencoder)
         prior_loss = prior_loss.mean()
-        prior_loss /= self.num_iterations
+        prior_loss *= self.weight_decay
 
         return nll + prior_loss
 
@@ -876,7 +876,8 @@ class BAE_BaseClass():
         raw_samples = self.predict_samples(x)
 
         #return also the input
-        x = x.detach().cpu().numpy()
+        if isinstance(x, torch.Tensor):
+            x = x.detach().cpu().numpy()
 
         #calculate mean and variance of model predictions
         mean_samples = raw_samples.mean(0)
@@ -979,7 +980,7 @@ class BAE_BaseClass():
         log_likelihood = (-((y_true - y_pred)**2)/(2*sigma_2))-(0.5*np.log(sigma_2))
         return log_likelihood
 
-    def log_prior_loss(self, model, mu=torch.Tensor([0.]), weight_decay=0.01, L=2):
+    def log_prior_loss(self, model, mu=torch.Tensor([0.]), L=2):
         #prior 0 ,1
         if self.anchored:
             mu = model.anchored_prior
@@ -988,7 +989,7 @@ class BAE_BaseClass():
             mu=mu.cuda()
 
         weights = torch.cat([parameter.flatten() for parameter in model.parameters()])
-        prior_loss = ((weights - mu)**L)*weight_decay
+        prior_loss = ((weights - mu)**L)
         return prior_loss
 
     def get_anchored_weight(self, model):
@@ -1053,3 +1054,15 @@ class BAE_BaseClass():
             return latent_pca_mu,latent_pca_sig
         else:
             return latent_mu, latent_sigma
+
+    def set_cuda(self, use_cuda=None):
+        if use_cuda is None:
+            use_cuda = self.use_cuda
+        else:
+            self.use_cuda = use_cuda
+
+        if self.model_type == "stochastic":
+            self.autoencoder.set_cuda(use_cuda)
+        else:
+            for model in self.autoencoder:
+                model.set_cuda(use_cuda)

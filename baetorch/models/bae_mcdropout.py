@@ -49,8 +49,8 @@ class BAE_MCDropout(BAE_BaseClass):
         self.alpha = alpha
         super(BAE_MCDropout, self).__init__(*args, model_name=model_name, model_type="stochastic", **kwargs)
 
-    def log_prior_loss(self, model, mu=torch.Tensor([0.]), weight_decay=0.01, L=2):
-        prior_loss = super(BAE_MCDropout, self).log_prior_loss(model,mu,weight_decay,L)
+    def log_prior_loss(self, model, mu=torch.Tensor([0.]), L=2):
+        prior_loss = super(BAE_MCDropout, self).log_prior_loss(model,mu,L)
         prior_loss *= (1.0 - self.dropout_p)
         return prior_loss
 

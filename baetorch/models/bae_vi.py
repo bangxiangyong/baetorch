@@ -9,7 +9,7 @@ import numpy as np
 
 #VI
 class VariationalLinear(torch.nn.Module):
-    def __init__(self, input_size, output_size, prior_mu=0., prior_sigma=1.):
+    def __init__(self, input_size, output_size, prior_mu=0., prior_sigma_1=1.0, prior_sigma_2=0.1, prior_pi=0.5):
         super(VariationalLinear, self).__init__()
         self.weight_mu = Parameter(torch.Tensor(output_size, input_size))
         self.weight_sigma = Parameter(torch.Tensor(output_size, input_size))
@@ -17,18 +17,20 @@ class VariationalLinear(torch.nn.Module):
         self.bias_mu = Parameter(torch.Tensor(output_size))
         self.bias_sigma = Parameter(torch.Tensor(output_size))
 
-        self.epsilon = Parameter(torch.Tensor(output_size, input_size),requires_grad = False)
-        self.epsilon_b = Parameter(torch.Tensor(output_size),requires_grad = False)
-
         self.prior_mu = Parameter(torch.FloatTensor([prior_mu]),requires_grad=False)
-        self.prior_sigma = Parameter(torch.FloatTensor([prior_sigma]),requires_grad=False)
+        self.prior_sigma = Parameter(torch.FloatTensor([prior_sigma_1]),requires_grad=False)
         self.prior_mu_ =prior_mu
-        self.prior_sigma_ = prior_sigma
+        self.prior_sigma_ = prior_sigma_1
 
-        # self.prior = Normal(self.prior_mu,self.prior_sigma)
+        #scale gaussian mixture
+        self.prior_sigma_1 = prior_sigma_1
+        self.prior_sigma_2 = prior_sigma_2
+        self.prior_pi = prior_pi
+
         self.input_size = input_size
         self.output_size = output_size
         self.reset_parameters()
+
 
     def reset_parameters(self):
         if hasattr(self, "weight_mu"):
@@ -41,9 +43,19 @@ class VariationalLinear(torch.nn.Module):
         log_likelihood = (-((y_true - y_pred)**2)/(2*sigma_2))-(0.5*torch.log(sigma_2))
         return log_likelihood
 
-    def kl_loss(self,weight,weight_mu,weight_sigma):
-        # q_variational_dist = Normal(weight_mu, weight_sigma)
-        # kl_loss = (q_variational_dist.log_prob(weight) - self.prior.log_prob(weight)).mean()
+    def gaussian_loss_sigma_torch(self, y_pred, y_true, sigma):
+        likelihood = (1/(sigma*2.506))*torch.exp(-(y_true-y_pred)**2)/(2*sigma**2)
+        return likelihood
+
+    def kl_loss_prior_mixture(self,weight,weight_mu,weight_sigma):
+        q_variational_log_prob = self.log_gaussian_loss_sigma_2_torch(weight,weight_mu,weight_sigma)
+        prior_log_prob = torch.log(self.prior_pi*self.gaussian_loss_sigma_torch(weight,self.prior_mu,self.prior_sigma_1) +\
+                         (1-self.prior_pi)*self.gaussian_loss_sigma_torch(weight,self.prior_mu,self.prior_sigma_2))
+        kl_loss = (q_variational_log_prob-prior_log_prob).mean()
+
+        return kl_loss
+
+    def kl_loss_prior_gaussian(self,weight,weight_mu,weight_sigma):
         q_variational_log_prob = self.log_gaussian_loss_sigma_2_torch(weight,weight_mu,weight_sigma)
         prior_log_prob = self.log_gaussian_loss_sigma_2_torch(weight,self.prior_mu,self.prior_sigma)
         kl_loss = (q_variational_log_prob-prior_log_prob).mean()
@@ -51,7 +63,6 @@ class VariationalLinear(torch.nn.Module):
         return kl_loss
 
     def weight_sample(self):
-        # weight = self.weight_mu + F.softplus(self.weight_sigma) * self.epsilon.data.normal_()
         weight = self.weight_mu + F.softplus(self.weight_sigma) * torch.randn_like(self.weight_mu)
         return weight
 
@@ -63,26 +74,27 @@ class VariationalLinear(torch.nn.Module):
         #draw samples for weight and bias
         weight = self.weight_sample()
         bias = self.bias_sample()
-        kl_loss = self.kl_loss(weight,self.weight_mu,F.softplus(self.weight_sigma))
+        kl_loss = self.kl_loss_prior_mixture(weight,self.weight_mu,F.softplus(self.weight_sigma))
         y = F.linear(x,weight,bias)
         return y,kl_loss
 
 class VariationalBaseConv():
-    def __init__(self, prior_mu=0., prior_sigma=1.):
+    def __init__(self, prior_mu=0., prior_sigma_1=1.0, prior_sigma_2=0.1, prior_pi=0.5):
         self.weight_mu = Parameter(torch.Tensor(*self.weight.shape))
         self.weight_sigma = Parameter(torch.Tensor(*self.weight.shape))
 
         self.bias_mu = Parameter(torch.Tensor(*self.bias.shape))
         self.bias_sigma = Parameter(torch.Tensor(*self.bias.shape))
 
-        self.epsilon = Parameter(torch.randn_like(self.weight_mu),requires_grad = False)
-        self.epsilon_b = Parameter(torch.randn_like(self.bias_mu),requires_grad = False)
-
         self.prior_mu = Parameter(torch.FloatTensor([prior_mu]),requires_grad=False)
-        self.prior_sigma = Parameter(torch.FloatTensor([prior_sigma]),requires_grad=False)
-
+        self.prior_sigma = Parameter(torch.FloatTensor([prior_sigma_1]),requires_grad=False)
         self.prior_mu_ =prior_mu
-        self.prior_sigma_ = prior_sigma
+        self.prior_sigma_ = prior_sigma_1
+
+        #scale gaussian mixture
+        self.prior_sigma_1 = prior_sigma_1
+        self.prior_sigma_2 = prior_sigma_2
+        self.prior_pi = prior_pi
 
     def reset_parameters(self):
         if hasattr(self, "weight_mu"):
@@ -90,11 +102,24 @@ class VariationalBaseConv():
             self.weight_sigma.data = torch.ones_like(self.weight_sigma) * -3
             self.bias_mu.data.normal_(self.prior_mu_,self.prior_sigma_*0.1)
             self.bias_sigma.data = torch.ones_like(self.bias_sigma) * -3
+
     def log_gaussian_loss_sigma_2_torch(self, y_pred, y_true, sigma_2):
         log_likelihood = (-((y_true - y_pred)**2)/(2*sigma_2))-(0.5*torch.log(sigma_2))
         return log_likelihood
 
-    def kl_loss(self,weight,weight_mu,weight_sigma):
+    def gaussian_loss_sigma_torch(self, y_pred, y_true, sigma):
+        likelihood = (1/(sigma*2.506))*torch.exp(-(y_true-y_pred)**2)/(2*sigma**2)
+        return likelihood
+
+    def kl_loss_prior_mixture(self,weight,weight_mu,weight_sigma):
+        q_variational_log_prob = self.log_gaussian_loss_sigma_2_torch(weight,weight_mu,weight_sigma)
+        prior_log_prob = torch.log(self.prior_pi*self.gaussian_loss_sigma_torch(weight,self.prior_mu,self.prior_sigma_1) +\
+                         (1-self.prior_pi)*self.gaussian_loss_sigma_torch(weight,self.prior_mu,self.prior_sigma_2))
+        kl_loss = (q_variational_log_prob-prior_log_prob).mean()
+
+        return kl_loss
+
+    def kl_loss_prior_gaussian(self,weight,weight_mu,weight_sigma):
         q_variational_log_prob = self.log_gaussian_loss_sigma_2_torch(weight,weight_mu,weight_sigma)
         prior_log_prob = self.log_gaussian_loss_sigma_2_torch(weight,self.prior_mu,self.prior_sigma)
         kl_loss = (q_variational_log_prob-prior_log_prob).mean()
@@ -110,9 +135,9 @@ class VariationalBaseConv():
         return bias
 
 class VariationalConv2D(Conv2d,VariationalBaseConv):
-    def __init__(self, prior_mu=0, prior_sigma=1., **kwargs):
+    def __init__(self, **kwargs):
         Conv2d.__init__(self,**kwargs)
-        VariationalBaseConv.__init__(self,prior_mu=prior_mu, prior_sigma=prior_sigma)
+        VariationalBaseConv.__init__(self)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -123,14 +148,14 @@ class VariationalConv2D(Conv2d,VariationalBaseConv):
         #draw samples for weight and bias
         weight = self.weight_sample()
         bias = self.bias_sample()
-        kl_loss = self.kl_loss(weight,self.weight_mu,F.softplus(self.weight_sigma))
+        kl_loss = self.kl_loss_prior_mixture(weight,self.weight_mu,F.softplus(self.weight_sigma))
         y = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
         return y,kl_loss
 
 class VariationalConv2DTranspose(ConvTranspose2d,VariationalBaseConv):
-    def __init__(self, prior_mu=0, prior_sigma=1., **kwargs):
+    def __init__(self,  **kwargs):
         ConvTranspose2d.__init__(self,**kwargs)
-        VariationalBaseConv.__init__(self,prior_mu=prior_mu, prior_sigma=prior_sigma)
+        VariationalBaseConv.__init__(self)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -141,7 +166,7 @@ class VariationalConv2DTranspose(ConvTranspose2d,VariationalBaseConv):
         #draw samples for weight and bias
         weight = self.weight_sample()
         bias = self.bias_sample()
-        kl_loss = self.kl_loss(weight,self.weight_mu,F.softplus(self.weight_sigma))
+        kl_loss = self.kl_loss_prior_mixture(weight,self.weight_mu,F.softplus(self.weight_sigma))
         y = F.conv_transpose2d(x, weight, bias, self.stride, self.padding, self.output_padding, self.groups, self.dilation)
 
         return y,kl_loss
@@ -248,11 +273,10 @@ class BAE_VI(BAE_BaseClass):
                 kl_loss = kl_loss + kl_loss_temp
         nll = nll/self.num_train_samples
         kl_loss = kl_loss/self.num_train_samples
-
-        #normalise by number of mini batches
-        kl_loss /= self.num_iterations
-        kl_loss *= self.weight_decay
         nll = nll.mean()
+
+        #scale kl by a constant hyperparameter
+        kl_loss *= self.weight_decay
 
         return nll + kl_loss
 
@@ -328,7 +352,7 @@ class VAELinear(VariationalLinear):
 
         weight = self.weight_sample()
 
-        kl_loss = self.kl_loss(weight,self.weight_mu,F.softplus(self.weight_sigma))
+        kl_loss = self.kl_loss_prior_gaussian(weight,self.weight_mu,F.softplus(self.weight_sigma))
 
         return weight,kl_loss
 
@@ -374,10 +398,11 @@ class VAE_Module(Autoencoder):
         log_likelihood = (-((y_true - y_pred)**2)/(2*sigma_2))-(0.5*torch.log(sigma_2))
         return log_likelihood
 
-    def kl_loss(self,weight,weight_mu,weight_sigma):
+    def kl_loss_prior_gaussian(self,weight,weight_mu,weight_sigma):
         q_variational_log_prob = self.log_gaussian_loss_sigma_2_torch(weight,weight_mu,weight_sigma)
         prior_log_prob = self.log_gaussian_loss_sigma_2_torch(weight,self.latent_layer_vi.prior_mu,self.latent_layer_vi.prior_sigma)
         kl_loss = (q_variational_log_prob-prior_log_prob).mean()
+
         return kl_loss
 
     def forward(self, x):
@@ -387,7 +412,7 @@ class VAE_Module(Autoencoder):
 
         #draw samples for weight and bias
         latent_sample = latent_mu + F.softplus(latent_sigma) * torch.randn_like(latent_mu)
-        kl_loss = self.kl_loss(latent_sample,latent_mu,F.softplus(latent_sigma))
+        kl_loss = self.kl_loss_prior_gaussian(latent_sample,latent_mu,F.softplus(latent_sigma))
 
         decoded_mu = self.decoder_mu(latent_sample)
 
@@ -401,9 +426,12 @@ class VAE(BAE_VI):
     """
     For VAE, only the latent dimension layer is considered as probabilistic, and trained using VI
     """
-    def __init__(self, *args, model_name="VAE", num_train_samples=5, **kwargs):
+    def __init__(self, *args, model_name="VAE", num_train_samples=5, beta=1.0, **kwargs):
         self.num_train_samples = num_train_samples #for training averaging
         BAE_VI.__init__(self,*args, model_name=model_name, **kwargs)
+
+        #beta for KL weighting
+        self.beta = beta
 
     def convert_autoencoder(self, autoencoder:Autoencoder):
         if autoencoder.decoder_sig_enabled:
@@ -453,17 +481,16 @@ class VAE(BAE_VI):
         #prior loss of encoder/decoder
         #note this doesn't include the latent layers
         #for kl loss already includes complexity cost due to prior on latent layers
-        prior_loss_encoder = self.log_prior_loss(model=autoencoder.encoder,weight_decay=self.weight_decay).mean()
-        prior_loss_decoder = self.log_prior_loss(model=autoencoder.decoder_mu,weight_decay=self.weight_decay).mean()
+        prior_loss_encoder = self.log_prior_loss(model=autoencoder.encoder).mean()
+        prior_loss_decoder = self.log_prior_loss(model=autoencoder.decoder_mu).mean()
         prior_loss = prior_loss_encoder+prior_loss_decoder
         if self.decoder_sigma_enabled:
-            prior_loss_decoder_sig = self.log_prior_loss(model=autoencoder.decoder_sig,weight_decay=self.weight_decay).mean()
+            prior_loss_decoder_sig = self.log_prior_loss(model=autoencoder.decoder_sig).mean()
             prior_loss = prior_loss+prior_loss_decoder_sig
 
-        #normalise by number of mini batches
-        kl_loss /= self.num_iterations
-        kl_loss *= self.weight_decay
-        prior_loss /= self.num_iterations
+        #scale by beta
+        kl_loss *= self.beta
+        prior_loss *= self.weight_decay
 
         return nll+kl_loss+prior_loss
 
@@ -498,8 +525,6 @@ class VAE(BAE_VI):
         encoded = self.autoencoder.encoder(x)
         latent_mu = self.autoencoder.latent_layer_mu(encoded).detach().cpu().numpy()
         latent_sigma = F.softplus(self.autoencoder.latent_layer_sigma(encoded)).detach().cpu().numpy()
-
-        latent = np.concatenate((latent_mu,latent_sigma))
 
         #remove from gpu
         encoded = encoded.detach().cpu() #detach
