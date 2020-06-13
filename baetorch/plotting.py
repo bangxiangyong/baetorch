@@ -8,12 +8,9 @@ from baetorch.util.misc import get_sample_dataloader, create_dir
 
 #modularised plots and evaluation
 def plot_samples_img(data=[],plot_samples=10, reshape_size=None, savefile="", savefolder="plots"):
-    create_dir(savefolder)
-
     if isinstance(data,dict):
         data_values = list(data.values())
         data_names = list(data.keys())
-        # data_names = [str(i) for i in range(1,len(data_values)+1)]
     else:
         data_values = data
         data_names = [str(i) for i in range(1,len(data_values)+1)]
@@ -45,17 +42,15 @@ def plot_samples_img(data=[],plot_samples=10, reshape_size=None, savefile="", sa
             ax[plot_sample][model_output].imshow(image, cmap='viridis', aspect='auto')
             ax[0][model_output].set_title(data_names[model_output],fontsize=6)
     plt.subplots_adjust(hspace=0, wspace=0)
-    # plt.tight_layout()
 
     #option to save plot
     if '.png' in savefile:
+        create_dir(savefolder)
         plt.savefig(savefolder+"/"+savefile)
 
     return fig
 
 def plot_output_distribution(*args, legends=["TEST", "OOD"], exclude_keys=[], savefile="", savefolder="plots"):
-    create_dir(savefolder)
-
     #exclude mu and input
     exclude_keys.append("mu")
     exclude_keys.append("input")
@@ -97,11 +92,11 @@ def plot_output_distribution(*args, legends=["TEST", "OOD"], exclude_keys=[], sa
 
     #option to save plot
     if '.png' in savefile:
+        create_dir(savefolder)
         plt.savefig(savefolder+"/"+savefile)
 
 #plot ROC curves and return AUROC, FPR80
 def plot_roc_curve(results_test,results_ood, title="OOD", exclude_keys=[],savefile="",savefolder="plots"):
-    create_dir(savefolder)
     #exclude mu and input
     exclude_keys.append("mu")
     exclude_keys.append("input")
@@ -138,13 +133,13 @@ def plot_roc_curve(results_test,results_ood, title="OOD", exclude_keys=[],savefi
 
     #option to save plot
     if '.png' in savefile:
+        create_dir(savefolder)
         plt.savefig(savefolder+"/"+savefile)
 
     return auroc_list, fpr80_list, metric_names
 
 #plot precision-recall curve and calculate AUPRC
 def plot_prc_curve(results_test,results_ood,title="OOD", exclude_keys=[],savefile="",savefolder="plots"):
-    create_dir(savefolder)
 
     #exclude mu and input
     exclude_keys.append("mu")
@@ -178,13 +173,12 @@ def plot_prc_curve(results_test,results_ood,title="OOD", exclude_keys=[],savefil
 
     #option to save plot
     if '.png' in savefile:
+        create_dir(savefolder)
         plt.savefig(savefolder+"/"+savefile)
 
     return auprc_list, metric_names
 
 def plot_calibration_curve(*models, id_data_test=None,savefile="",savefolder="plots"):
-    create_dir(savefolder)
-
     #allow flexible in handling arguments list
     if id_data_test is None and len(models) >= 2:
         id_data_test = models[-1]
@@ -253,6 +247,7 @@ def plot_calibration_curve(*models, id_data_test=None,savefile="",savefolder="pl
 
     #option to save plot
     if '.png' in savefile:
+        create_dir(savefolder)
         plt.savefig(savefolder+"/"+savefile)
 
     plt.legend(legends)
@@ -286,9 +281,8 @@ def plot_latent(*datasets, legends=[],bae_model, transform_pca=True, return_var=
     if return_var:
         ax_sig.set_title(bae_model.model_name+" latent variance")
 
-def plot_train_loss(model,savefile="",savefolder="plots"):
-    create_dir(savefolder)
 
+def plot_train_loss(model,savefile="",savefolder="plots"):
     plt.figure()
     losses = model.losses
     if len(model.losses)>=5:
@@ -298,8 +292,8 @@ def plot_train_loss(model,savefile="",savefolder="plots"):
     plt.title(model.model_name+" Training Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.xticks(np.arange(1,len(losses)+1))
 
     #option to save plot
     if '.png' in savefile:
+        create_dir(savefolder)
         plt.savefig(savefolder+"/"+savefile)
