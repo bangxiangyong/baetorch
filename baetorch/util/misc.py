@@ -46,7 +46,7 @@ class AddNoise(object):
     def __repr__(self):
         return self.__class__.__name__ + '()'
 
-def save_bae_model(model,folder="pickles/"):
+def save_bae_model(model,folder="trained_models/"):
     create_dir(folder)
     pickle.dump(model, open(folder+model.model_name+".p", "wb"))
 
