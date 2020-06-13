@@ -1,11 +1,7 @@
-from baetorch.util.seed import bae_set_seed
 import torch
 from torch.distributions.continuous_bernoulli import ContinuousBernoulli
 import torch.nn.functional as F
 import numpy as np
-import math
-import copy
-from torch.distributions.utils import probs_to_logits
 
 class CB_Distribution():
     def __init__(self, probs=0):

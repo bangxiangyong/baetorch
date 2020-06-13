@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from baetorch.util.misc import parse_activation
+from ..util.misc import parse_activation
 
 def compute_entropy(vector_s):
     return (np.log(vector_s)*vector_s).sum()*-1
