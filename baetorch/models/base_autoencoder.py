@@ -886,9 +886,9 @@ class BAE_BaseClass():
 
         #handle different model types
         if model_type == "list":
-            y_preds = [list(self._calc_output_single(model,x)) for model in self.autoencoder]
+            y_preds = [list(self.calc_output_single(model, x)) for model in self.autoencoder]
         elif model_type == "stochastic":
-            y_preds = [list(self._calc_output_single(self.autoencoder,x)) for i in range(self.num_samples)]
+            y_preds = [list(self.calc_output_single(self.autoencoder, x)) for i in range(self.num_samples)]
 
         return y_preds
 
@@ -1022,7 +1022,7 @@ class BAE_BaseClass():
 
         return flatten_np(y_mu), flatten_np(y_sigma), log_noise
 
-    def _calc_output_single(self, autoencoder, x):
+    def calc_output_single(self, autoencoder, x):
         #per sample
         y_mu, y_sigma, log_noise = self._get_mu_sigma_single(autoencoder, x)
 
