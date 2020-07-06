@@ -742,7 +742,7 @@ class BAE_BaseClass():
         if self.verbose:
             print("LOSS #{}:{}".format(epoch,loss))
 
-    def fit(self, x,y=None, mode="mu", num_epochs=None, sigma_train="separate"):
+    def fit(self, x,y=None, mode="mu", num_epochs=None, sigma_train="separate", supervised=False):
         """
         Overarching fitting function, to handle pytorch train loader or tensors
         """
@@ -762,7 +762,10 @@ class BAE_BaseClass():
             for epoch in tqdm(range(num_epochs)):
                 temp_loss = []
                 for batch_idx, (data, target) in enumerate(x):
-                    loss = self.fit_one(x=data,y=data, mode=mode)
+                    if supervised:
+                        loss = self.fit_one(x=data,y=target, mode=mode)
+                    else:
+                        loss = self.fit_one(x=data,y=data, mode=mode)
                     temp_loss.append(loss)
                     self.losses.append(np.mean(temp_loss))
                 self.print_loss(epoch,self.losses[-1])
