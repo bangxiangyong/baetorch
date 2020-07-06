@@ -738,12 +738,17 @@ class BAE_BaseClass():
         #likelihood
         if y is None:
             y = x
+        #get outputs of autoencoder, depending on the number of decoders
+        #that is, if decoder sigma is enabled or not
         if self.decoder_sigma_enabled:
             y_pred_mu, y_pred_sig = autoencoder(x)
+        else:
+            y_pred_mu = autoencoder(x)
+
+        #depending on the mode, we compute the nll
         if mode=="sigma":
             nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), flatten_torch(y_pred_sig))
         elif mode =="mu":
-            y_pred_mu = autoencoder(x)
             nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
         return nll
 
@@ -756,7 +761,16 @@ class BAE_BaseClass():
             nll = F.binary_cross_entropy(flatten_torch(y_pred_mu), flatten_torch(y), reduction="none")
         elif self.likelihood == "cbernoulli":
             nll = self.log_cbernoulli_loss_torch(flatten_torch(y_pred_mu), flatten_torch(y))
+        elif self.likelihood == "truncated_gaussian":
+            nll = -self.log_truncated_loss_torch(flatten_torch(y_pred_mu), flatten_torch(y), flatten_torch(y_pred_sig))
+
         return nll
+
+    def log_truncated_loss_torch(self, y_pred_mu, y_true,y_pred_sig):
+        if hasattr(self, "trunc_g") == False:
+            self.trunc_g = TruncatedGaussian(use_cuda=self.use_cuda)
+        nll_trunc_g = self.trunc_g.truncated_log_pdf(y_true,y_pred_mu,torch.exp(y_pred_sig))
+        return nll_trunc_g
 
     def log_cbernoulli_loss_torch(self, y_pred_mu, y_true):
         if hasattr(self, "cb") == False:
