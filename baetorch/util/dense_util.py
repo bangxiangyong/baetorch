@@ -67,6 +67,9 @@ def parse_architecture_string(input_size,output_size, architecture, layer_type=t
     layers = []
     if len(architecture) == 0:
         layers.append(layer_type(input_size,output_size))
+        #last activation layer
+        layers = append_activation(layers,last_activation)
+
     else:
         for layer_index,layer_string in enumerate(architecture):
             if layer_index ==0:
