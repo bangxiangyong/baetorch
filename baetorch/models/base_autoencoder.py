@@ -36,20 +36,19 @@ import torch.nn.functional as F
 from ..util.dense_util import parse_architecture_string
 from ..util.misc import create_dir
 import numpy as np
-from ..util.conv2d_util import calc_required_padding, calc_flatten_conv2d_forward_pass, calc_flatten_conv2dtranspose_forward_pass
+from ..util.conv2d_util import calc_required_padding, calc_flatten_conv2d_forward_pass, calc_flatten_conv2dtranspose_forward_pass, calc_flatten_conv1d_forward_pass, calc_flatten_conv1dtranspose_forward_pass, convert_tuple_conv2d_params
 from torch.autograd import Variable
 from tqdm import tqdm
 from sklearn.decomposition import PCA
 from ..util.misc import parse_activation
-from ..util.distributions import CB_Distribution
-import math
+from ..util.distributions import CB_Distribution, TruncatedGaussian
 
 ###TORCH BASE MODULES###
 class ConvLayers(torch.nn.Module):
     def __init__(self, input_dim=28, conv_architecture=[1,32,64], conv_kernel=3,
                  conv_stride=1,conv_padding=2, reverse_params=True,
                  mpool_kernel=2,mpool_stride=2, output_padding=[], use_cuda=False, activation="relu",
-                 upsampling=False, last_activation="sigmoid", layer_type=[torch.nn.Conv2d, torch.nn.ConvTranspose2d]):
+                 upsampling=False, last_activation="sigmoid", layer_type=[torch.nn.Conv2d, torch.nn.ConvTranspose2d], conv_dim=2):
         super(ConvLayers, self).__init__()
         self.layers = []
         self.use_cuda = use_cuda
@@ -58,16 +57,22 @@ class ConvLayers(torch.nn.Module):
         self.conv_kernel,self.conv_stride,self.conv_padding = copy.copy(conv_kernel),copy.copy(conv_stride),copy.copy(conv_padding)
         self.conv_kernel = self.convert_int_to_list(self.conv_kernel,len(self.conv_architecture)-1)
         self.conv_stride = self.convert_int_to_list(self.conv_stride,len(self.conv_architecture)-1)
-        self.input_dim = input_dim
+
+        if conv_dim == 2:
+            self.input_dim = convert_tuple_conv2d_params(input_dim)
+        else:
+            self.input_dim = input_dim
+
         self.activation = activation
         self.last_activation = last_activation
+        self.conv_dim = conv_dim
 
         #forward and deconvolutional layer type
-        self.conv2d_layer_type = layer_type[0]
-        self.conv2d_trans_layer_type = layer_type[1]
+        self.conv_layer_type = layer_type[0]
+        self.conv_trans_layer_type = layer_type[1]
 
         if len(output_padding) ==0:
-            self.conv_padding, self.output_padding = calc_required_padding(input_dim_init=input_dim, kernels=conv_kernel, strides=conv_stride,verbose=True)
+            self.conv_padding, self.output_padding = calc_required_padding(input_dim_init=input_dim, kernels=conv_kernel, strides=conv_stride,verbose=True, conv_dim=self.conv_dim)
         else:
             self.conv_padding = self.convert_int_to_list(self.conv_padding,len(self.conv_architecture)-1)
             self.output_padding = output_padding
@@ -96,22 +101,22 @@ class ConvLayers(torch.nn.Module):
                 if self.upsampling == False:
                     if activation is not None:
                         layer = torch.nn.Sequential(
-                            self.conv2d_layer_type(in_channels=in_channels, out_channels=out_channels, kernel_size=self.conv_kernel[channel_id], stride=self.conv_stride[channel_id], padding=self.conv_padding[channel_id]),
+                            self.conv_layer_type(in_channels=in_channels, out_channels=out_channels, kernel_size=self.conv_kernel[channel_id], stride=self.conv_stride[channel_id], padding=self.conv_padding[channel_id]),
                             activation)
                     else:
                         layer = torch.nn.Sequential(
-                            self.conv2d_layer_type(in_channels=in_channels, out_channels=out_channels, kernel_size=self.conv_kernel[channel_id], stride=self.conv_stride[channel_id], padding=self.conv_padding[channel_id]))
+                            self.conv_layer_type(in_channels=in_channels, out_channels=out_channels, kernel_size=self.conv_kernel[channel_id], stride=self.conv_stride[channel_id], padding=self.conv_padding[channel_id]))
 
                 #deconvolutional
                 else:
                     if activation is not None:
                         layer = torch.nn.Sequential(
-                            self.conv2d_trans_layer_type(in_channels=in_channels, out_channels=out_channels, kernel_size=self.conv_kernel[channel_id], stride=self.conv_stride[channel_id], padding=self.conv_padding[channel_id], output_padding=self.output_padding[channel_id]),
+                            self.conv_trans_layer_type(in_channels=in_channels, out_channels=out_channels, kernel_size=self.conv_kernel[channel_id], stride=self.conv_stride[channel_id], padding=self.conv_padding[channel_id], output_padding=self.output_padding[channel_id]),
                             activation
                             )
                     else:
                         layer = torch.nn.Sequential(
-                            self.conv2d_trans_layer_type(in_channels=in_channels, out_channels=out_channels, kernel_size=self.conv_kernel[channel_id], stride=self.conv_stride[channel_id], padding=self.conv_padding[channel_id], output_padding=self.output_padding[channel_id]))
+                            self.conv_trans_layer_type(in_channels=in_channels, out_channels=out_channels, kernel_size=self.conv_kernel[channel_id], stride=self.conv_stride[channel_id], padding=self.conv_padding[channel_id], output_padding=self.output_padding[channel_id]))
 
                 self.layers.append(layer)
 
@@ -123,18 +128,26 @@ class ConvLayers(torch.nn.Module):
 
     def get_input_dimensions(self, flatten=True):
         if flatten:
-            return ((self.input_dim**2)*self.conv_architecture[0])
+            if self.conv_dim == 2:
+                return ((self.input_dim[0]*self.input_dim[1])*self.conv_architecture[0])
+            else:
+                return (self.input_dim*self.conv_architecture[0])
         else:
             return (self.conv_architecture[0],self.input_dim)
 
     def get_output_dimensions(self,input_dim=None, flatten=True):
         if input_dim is None:
             input_dim = self.input_dim
-
-        if self.upsampling == False:
-            return calc_flatten_conv2d_forward_pass(input_dim, channels=self.conv_architecture, strides=self.conv_stride, kernels=self.conv_kernel, paddings=self.conv_padding, flatten=flatten)
+        if self.conv_dim == 2:
+            if self.upsampling == False:
+                return calc_flatten_conv2d_forward_pass(input_dim, channels=self.conv_architecture, strides=self.conv_stride, kernels=self.conv_kernel, paddings=self.conv_padding, flatten=flatten)
+            else:
+                return calc_flatten_conv2dtranspose_forward_pass(input_dim, channels=self.conv_architecture, strides=self.conv_stride[::-1], kernels=self.conv_kernel[::-1], paddings=self.conv_padding[::-1], output_padding=self.output_padding, flatten=flatten)
         else:
-            return calc_flatten_conv2dtranspose_forward_pass(input_dim, channels=self.conv_architecture, strides=self.conv_stride[::-1], kernels=self.conv_kernel[::-1], paddings=self.conv_padding[::-1], output_padding=self.output_padding, flatten=flatten)
+            if self.upsampling == False:
+                return calc_flatten_conv1d_forward_pass(input_dim, channels=self.conv_architecture, strides=self.conv_stride, kernels=self.conv_kernel, paddings=self.conv_padding, flatten=flatten)
+            else:
+                return calc_flatten_conv1dtranspose_forward_pass(input_dim, channels=self.conv_architecture, strides=self.conv_stride[::-1], kernels=self.conv_kernel[::-1], paddings=self.conv_padding[::-1], output_padding=self.output_padding, flatten=flatten)
 
     def convert_int_to_list(self,int_param,num_replicate):
         """
@@ -149,6 +162,14 @@ class ConvLayers(torch.nn.Module):
         for layer in self.layers:
             x = layer(x)
         return x
+
+class Conv2DLayers(ConvLayers):
+    def __init__(self, **kwargs):
+        super(Conv2DLayers, self).__init__(**kwargs, layer_type= [torch.nn.Conv2d, torch.nn.ConvTranspose2d], conv_dim=2)
+
+class Conv1DLayers(ConvLayers):
+    def __init__(self, **kwargs):
+        super(Conv1DLayers, self).__init__(**kwargs, layer_type= [torch.nn.Conv1d, torch.nn.ConvTranspose1d], conv_dim=1)
 
 class DenseLayers(torch.nn.Module):
     def __init__(self, input_size=1, output_size=1, architecture=["d1","d1"], activation="relu", use_cuda=False, init_log_noise=1e-3, last_activation="none",
@@ -222,7 +243,7 @@ class DenseLayers(torch.nn.Module):
         return x
 
 def flatten_torch(x):
-    x = x.view(x.size()[0], -1)
+    x = x.reshape(x.size()[0], -1)
     return x
 
 def flatten_np(x):
@@ -263,13 +284,21 @@ def infer_decoder(encoder=[],latent_dim=None, last_activation="sigmoid", activat
                activation = encoder_layer.activation
 
            conv_transpose_inchannels, conv_transpose_input_dim = encoder_layer.get_output_dimensions(flatten=False)[-1]
-           decoder_conv = ConvLayers(input_dim=conv_transpose_input_dim, conv_architecture=encoder_layer.conv_architecture,
-                                    conv_kernel=encoder_layer.conv_kernel,
-                                    conv_stride=encoder_layer.conv_stride,
-                                    conv_padding=encoder_layer.conv_padding,
-                                    output_padding=encoder_layer.output_padding,
-                                    activation=activation,
-                                    upsampling=True, last_activation=last_activation)
+           decoder_conv_parameters = {"input_dim":conv_transpose_input_dim,
+                                 "conv_architecture":encoder_layer.conv_architecture,
+                                 "conv_kernel":encoder_layer.conv_kernel,
+                                 "conv_stride":encoder_layer.conv_stride,
+                                 "conv_padding":encoder_layer.conv_padding,
+                                 "output_padding":encoder_layer.output_padding,
+                                 "activation":activation,
+                                 "upsampling":True,
+                                 "last_activation":last_activation}
+
+           #handle either conv1d or conv2d layers
+           if encoder_layer.conv_dim == 2:
+               decoder_conv = Conv2DLayers(**decoder_conv_parameters)
+           else:
+               decoder_conv = Conv1DLayers(**decoder_conv_parameters)
            decoder.append(decoder_conv)
            has_conv_layer = True
 
@@ -290,7 +319,10 @@ def infer_decoder(encoder=[],latent_dim=None, last_activation="sigmoid", activat
     #has convolutional layer, add a reshape layer before the conv layer
     if has_conv_layer:
         decoder.reverse()
-        decoder.insert(-1, Reshape((decoder_conv.conv_architecture[0],decoder_conv.input_dim,decoder_conv.input_dim)))
+        if isinstance(decoder_conv.input_dim, tuple):
+            decoder.insert(-1, Reshape((decoder_conv.conv_architecture[0],*decoder_conv.input_dim)))
+        elif isinstance(decoder_conv.input_dim, int):
+            decoder.insert(-1, Reshape((decoder_conv.conv_architecture[0],decoder_conv.input_dim)))
 
     return torch.nn.Sequential(*decoder)
 
@@ -318,10 +350,18 @@ class Encoder(torch.nn.Sequential):
             dense_layer = layer_list[-1]
             return (Flatten(), dense_layer)
 
-    def get_input_dimensions(self):
+    def get_conv_layers(self):
+        if self.has_conv_layer:
+            for layer in self.children():
+                if isinstance(layer, ConvLayers):
+                    return layer
+        else:
+            return -1
+
+    def get_input_dimensions(self, flatten=True):
         for child in self.children():
             if hasattr(child,"get_input_dimensions"):
-                return child.get_input_dimensions()
+                return child.get_input_dimensions(flatten)
 
 #Autoencoder base class
 class Autoencoder(torch.nn.Module):

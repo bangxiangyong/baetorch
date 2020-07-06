@@ -6,7 +6,6 @@ from itertools import combinations_with_replacement
 def calc_same_padding(stride=2,width=28,filter_size=5):
     S,W,F =stride,width,filter_size
     P = ((S-1)*W-S+F)/2
-    # P = ((stride-1)*width-stride+filter_size)/2
     padding_height = (stride * (width - 1) + filter_size - width) / 2
     return int(np.round(padding_height))
 
@@ -14,33 +13,197 @@ def calc_output_padding(s=2,p=0,i=2,o = 0, k=3):
     output_padding = (o -(i -1)*s)+2*p-k
     return int(np.round(output_padding))
 
-def calc_output_conv2d(s=2,p=0,i=2, k=3):
+def calc_output_conv(s=2, p=0, i=2, k=3):
     o = (i + 2*p - k)/s + 1
+    if o <= 0:
+        raise ValueError("Invalid output size calculated %d<=0. Try different kernel and stride sizes." % o)
     return int(np.round(o))
 
-def calc_output_conv2dtranspose(s=2,p=0,i=2,output_padding = 0, k=3):
+def calc_output_convtranspose(s=2, p=0, i=2, output_padding = 0, k=3):
     o = (i -1)*s - 2*p + k + output_padding
+    if o <= 0:
+        raise ValueError("Invalid output size calculated %d<=0. Try different kernel and stride sizes." % o)
     return int(np.round(o))
+
+
+def convert_tuple_conv2d_params(input_dim, *args):
+    """
+    Converts the parameters of int into a tuple of equal int. If it is already a tuple, then ignore and return the same.
+
+    Parameters
+    ----------
+    input_dim : int or tuple
+    *args : list of int or list of tuple
+        for each item, we convert the int into a tuple of int. If it is already a tuple, then return the same.
+
+    Return
+    ------
+    input_dim : tuple
+    *args : list of tuple
+
+    """
+    #convert a single input into tuple
+    if isinstance(input_dim,int):
+        input_dim = (input_dim,input_dim)
+
+    if len(args) == 0:
+        return input_dim
+    else:
+        for arg in args:
+            for i in range(len(arg)):
+                if isinstance(arg[i],int):
+                    arg[i] = (arg[i],arg[i])
+
+        return input_dim, *args
 
 def calc_conv2dforward_pass(input_dim=28, strides=[], paddings=[], kernels=[]):
-    e_ = []
+    """
+    Calculates the dimensions (width and height) of the output from a series of Conv2D layer, given the input dimensions, strides, paddings and kernels
+    If only int is supplied for any of the parameters, a tuple of equal dimensions is internally supplied.
+    For strides, paddings and kernels, list of int or tuple of int are expected, where each item in the list
+    correspond to multiple layers chained together.
+
+    Parameters
+    ----------
+    input_dim : int or tuple of int
+        Input dimensions of the data.
+
+    strides : list of int or list of tuple of int
+        Parameters of Conv2D layer.
+    paddings : list of int or list of tuple of int
+        Parameters of Conv2D layer.
+    kernels : list of int or list of tuple of int
+        Parameters of Conv2D layer.
+
+    Returns
+    -------
+    output_dimensions : list of tuples
+        Output dimensions for each layer in the given list of parameters
+    """
+    output_dimensions = []
+    #convert a single input into tuple
+    input_dim, strides, paddings, kernels = convert_tuple_conv2d_params(input_dim, strides, paddings, kernels)
+
     for num_layer, _ in enumerate(kernels):
         if num_layer == 0:
             input_dim = input_dim
         else:
-            input_dim = e_[-1]
-        e_.append(calc_output_conv2d(s=strides[num_layer],p=paddings[num_layer],i=input_dim,k=kernels[num_layer]))
-    return e_
+            input_dim = output_dimensions[-1]
+        output_dimensions.append((calc_output_conv(s=strides[num_layer][0], p=paddings[num_layer][0], i=input_dim[0], k=kernels[num_layer][0]),
+                                  calc_output_conv(s=strides[num_layer][1], p=paddings[num_layer][1], i=input_dim[1], k=kernels[num_layer][1])))
+    return output_dimensions
+
+def calc_conv1dforward_pass(input_dim=28, strides=[], paddings=[], kernels=[]):
+    """
+    Similar to `calc_conv2dforward_pass` but for series of Conv1D layers instead of Conv2D to calculate the output dimensions.
+    Hence, different from `calc_conv2dforward_pass`, we expect list of ints for the parameters instead of tuple of size 2
+
+    Parameters
+    ----------
+    input_dim : int
+        Input dimensions of the 1D data.
+
+    strides : list of int
+        Parameters of Conv1D layer.
+    paddings : list of int
+        Parameters of Conv1D layer.
+    kernels : list of int
+        Parameters of Conv1D layer.
+
+    Returns
+    -------
+    output_dimensions : list
+        Output dimensions for each layer in the given list of parameters
+    """
+    output_dimensions = []
+
+    for num_layer, _ in enumerate(kernels):
+        if num_layer == 0:
+            input_dim = input_dim
+        else:
+            input_dim = output_dimensions[-1]
+        output_dimensions.append(calc_output_conv(s=strides[num_layer], p=paddings[num_layer], i=input_dim, k=kernels[num_layer]))
+    return output_dimensions
 
 def calc_flatten_conv2d_forward_pass(input_dim=28, channels=[], strides=[], paddings=[], kernels=[], flatten=True):
-    results=[(input_dim**2)*channels[0] if flatten else ((channels[0],input_dim))]
+    """
+    Calculates the output dimensions of Conv2D layers, taking into account the number of channels.
+    Provides an option to flatten the dimensions which is used when inferring the size of Dense layer that this series of Conv2D layers will be connected to.
+
+    Uses `calc_conv2dforward_pass` for calculating the height and width dimensions.
+
+    Parameters
+    ----------
+    input_dim : int or tuple of int
+        Input dimensions of the data.
+
+    channels : list of int or list of tuple of int
+        Parameters of Conv2D layer.
+    strides : list of int or list of tuple of int
+        Parameters of Conv2D layer.
+    paddings : list of int or list of tuple of int
+        Parameters of Conv2D layer.
+    kernels : list of int or list of tuple of int
+        Parameters of Conv2D layer.
+
+    flatten : bool
+        Choose whether to flatten the dimensions of width x height x channels or not.
+        If True, the output will be the flattened dimensions for every Conv2D layer in the list.
+        If False, the output will be the (channels, (width, height))
+
+    Returns
+    -------
+    dimensions : list of tuples
+        Output dimensions for each layer in the given list of parameters. The format depends on `flatten` parameter.
+
+    """
+    #convert a single input into tuple
+    input_dim, strides, paddings, kernels = convert_tuple_conv2d_params(input_dim, strides, paddings, kernels)
+
+    results=[(input_dim[0]*input_dim[1])*channels[0] if flatten else ((channels[0],input_dim[0]))]
     dims = calc_conv2dforward_pass(input_dim=input_dim,strides=strides,paddings=paddings,kernels=kernels)
     for dim, channel in zip(dims,channels[1:]):
         if flatten:
-            results.append((dim**2)*channel)
+            results.append((dim[0]*dim[1])*channel)
         else:
             results.append((channel, dim))
     return results
+
+def calc_flatten_conv1d_forward_pass(input_dim=28, channels=[], strides=[], paddings=[], kernels=[], flatten=True):
+    """
+    Similar to `calc_flatten_conv2d_forward_pass` but for Conv1D.
+
+    Parameters
+    ----------
+    input_dim : int
+        Input dimensions of the 1D data.
+
+    strides : list of int
+        Parameters of Conv1D layer.
+    paddings : list of int
+        Parameters of Conv1D layer.
+    kernels : list of int
+        Parameters of Conv1D layer.
+    flatten : bool
+        Choose whether to flatten the dimensions of data length x channels or not.
+        If True, the output will be the flattened dimensions for every Conv1D layer in the list.
+        If False, the output will be the (channels, (data_length))
+
+    Returns
+    -------
+    dimensions : list of tuples
+        Output dimensions for each layer in the given list of parameters. The format depends on `flatten` parameter.
+
+    """
+    results=[input_dim*channels[0] if flatten else ((channels[0],input_dim))]
+    dims = calc_conv1dforward_pass(input_dim=input_dim,strides=strides,paddings=paddings,kernels=kernels)
+    for dim, channel in zip(dims,channels[1:]):
+        if flatten:
+            results.append(dim*channel)
+        else:
+            results.append((channel, dim))
+    return results
+
 
 def calc_target_dims(encode_dims=[28, 12, 4], input_dim_init=0):
     target_dims = copy.copy(encode_dims)
@@ -50,23 +213,66 @@ def calc_target_dims(encode_dims=[28, 12, 4], input_dim_init=0):
     return target_dims
 
 #calculate for decoder forward pass dimension
-def calc_conv2dtranspose_pass(init_e_dim=2,output_padding=[],strides=[],paddings=[], kernels=[]):
+def calc_conv2dtranspose_pass(input_dim=2,output_padding=[],strides=[],paddings=[], kernels=[]):
+    """
+    Similar to `calc_conv2dforward_pass` but for Conv2DTranspose layers instead.
+    See `calc_conv2dforward_pass` for the description of expected parameters.
+    Note that output_padding is unique to ConvTranspose layers only.
+    """
     #reverse it
     s_reverse = list(reversed(strides))
     p_reverse = list(reversed(paddings))
     k_reverse = list(reversed(kernels))
-    d_dims = []
+
+    output_dimensions = []
+    #convert a single input into tuple
+    input_dim, strides, paddings, kernels, output_padding = convert_tuple_conv2d_params(input_dim, strides, paddings, kernels,output_padding)
+
     for num_layer, _ in enumerate(kernels):
         if num_layer == 0:
-            decode_input_dim = init_e_dim
+            input_dim = input_dim
         else:
-            decode_input_dim = d_dims[-1]
-        d_dims.append(calc_output_conv2dtranspose(s=s_reverse[num_layer],p=p_reverse[num_layer],i=decode_input_dim,k=k_reverse[num_layer],output_padding=output_padding[num_layer]))
-    return d_dims
+            input_dim = output_dimensions[-1]
+        output_dimensions.append((calc_output_convtranspose(s=s_reverse[num_layer][0], p=p_reverse[num_layer][0], i=input_dim[0], k=k_reverse[num_layer][0], output_padding=output_padding[num_layer][0]),
+                                  calc_output_convtranspose(s=s_reverse[num_layer][1], p=p_reverse[num_layer][1], i=input_dim[1], k=k_reverse[num_layer][1], output_padding=output_padding[num_layer][1])))
+    return output_dimensions
+
+def calc_conv1dtranspose_pass(input_dim=2,output_padding=[],strides=[],paddings=[], kernels=[]):
+    """
+    Similar to `calc_conv1dforward_pass` but for Conv1DTranspose layers instead.
+    See `calc_conv1dforward_pass` for the description of expected parameters.
+    Note that output_padding is unique to ConvTranspose layers only.
+    """
+    #reverse it
+    s_reverse = list(reversed(strides))
+    p_reverse = list(reversed(paddings))
+    k_reverse = list(reversed(kernels))
+
+    output_dimensions = []
+
+    for num_layer, _ in enumerate(kernels):
+        if num_layer == 0:
+            input_dim = input_dim
+        else:
+            input_dim = output_dimensions[-1]
+        output_dimensions.append(calc_output_convtranspose(s=s_reverse[num_layer], p=p_reverse[num_layer], i=input_dim, k=k_reverse[num_layer], output_padding=output_padding[num_layer]))
+    return output_dimensions
+
+
+def calc_flatten_conv1dtranspose_forward_pass(input_dim=28, channels=[], output_padding=[], strides=[], paddings=[], kernels=[], flatten=True):
+    results=[(input_dim)*channels[0] if flatten else ((channels[0],input_dim))]
+    dims = calc_conv2dtranspose_pass(input_dim=input_dim,output_padding=output_padding,strides=strides,paddings=paddings,kernels=kernels)
+    for dim, channel in zip(dims,channels[1:]):
+        if flatten:
+            results.append(dim*channel)
+        else:
+            results.append((channel, dim))
+    return results
+
 
 def calc_flatten_conv2dtranspose_forward_pass(input_dim=28, channels=[], output_padding=[], strides=[], paddings=[], kernels=[], flatten=True):
     results=[(input_dim**2)*channels[0] if flatten else ((channels[0],input_dim))]
-    dims = calc_conv2dtranspose_pass(init_e_dim=input_dim,output_padding=output_padding,strides=strides,paddings=paddings,kernels=kernels)
+    dims = calc_conv2dtranspose_pass(input_dim=input_dim,output_padding=output_padding,strides=strides,paddings=paddings,kernels=kernels)
     for dim, channel in zip(dims,channels[1:]):
         if flatten:
             results.append((dim**2)*channel)
@@ -92,23 +298,34 @@ def get_updated_output_padding(output_padding, current_dims, target_dims, kernel
             return temp_output_padding
     return temp_output_padding
 
-def calc_required_output_padding(input_dim_init=28, kernels=[5,5,2],strides=[2,2,2], paddings=[0,0,0],verbose=True):
-    encode_dims = calc_conv2dforward_pass(input_dim=input_dim_init, strides=strides, paddings=paddings, kernels=kernels)
+def calc_required_output_padding(input_dim_init=28, kernels=[5,5,2],strides=[2,2,2], paddings=[0,0,0],verbose=True, conv_dim=2):
+    if conv_dim == 2:
+        encode_dims = calc_conv2dforward_pass(input_dim=input_dim_init, strides=strides, paddings=paddings, kernels=kernels)
+    else:
+        encode_dims = calc_conv1dforward_pass(input_dim=input_dim_init, strides=strides, paddings=paddings, kernels=kernels)
+
     target_dims = calc_target_dims(encode_dims, input_dim_init=input_dim_init)
 
     output_padding_init = [0] * len(kernels)
-    decode_dims_init = calc_conv2dtranspose_pass(init_e_dim=encode_dims[-1], output_padding=output_padding_init, strides=strides, paddings=paddings, kernels=kernels)
 
+    if conv_dim == 2:
+        decode_dims_init = calc_conv2dtranspose_pass(input_dim=encode_dims[-1], output_padding=output_padding_init, strides=strides, paddings=paddings, kernels=kernels)
+    else:
+        decode_dims_init = calc_conv1dtranspose_pass(input_dim=encode_dims[-1], output_padding=output_padding_init, strides=strides, paddings=paddings, kernels=kernels)
     #iterate through
     max_iterations = 100
     current_i =0
     decode_dims_i = copy.copy(decode_dims_init)
     output_padding_new = copy.copy(output_padding_init)
     if verbose:
-        print([output_padding_init,decode_dims_i,target_dims])
+        print("REQ OUTPUT PADDING, DEC-DIM, TARG-DIM :\n"+str([output_padding_init,decode_dims_i,target_dims]))
     while (reached_target_dims(decode_dims_i, target_dims) == False and current_i < max_iterations):
         output_padding_new = get_updated_output_padding(output_padding_new, decode_dims_i, target_dims, kernels)
-        decode_dims_i = calc_conv2dtranspose_pass(init_e_dim=encode_dims[-1], output_padding=output_padding_new, strides=strides, paddings=paddings, kernels=kernels)
+        if conv_dim == 2:
+            decode_dims_i = calc_conv2dtranspose_pass(input_dim=encode_dims[-1], output_padding=output_padding_new, strides=strides, paddings=paddings, kernels=kernels)
+        else:
+            decode_dims_i = calc_conv1dtranspose_pass(input_dim=encode_dims[-1], output_padding=output_padding_new, strides=strides, paddings=paddings, kernels=kernels)
+
         current_i+=1
 
         if verbose:
@@ -117,18 +334,25 @@ def calc_required_output_padding(input_dim_init=28, kernels=[5,5,2],strides=[2,2
             return -1
     return output_padding_new
 
-def calc_required_padding(input_dim_init=28, kernels=[5, 5, 2], strides=[2, 2, 2], verbose=True):
+def calc_required_padding(input_dim_init=28, kernels=[5, 5, 2], strides=[2, 2, 2], verbose=True, conv_dim=2):
+    """
+    Calculates the required paddings and output paddings for Conv and ConvTranspose to achieve a symmetrical input-output size for use of autoencoder.
+
+    This will be used in the `ConvLayers` class.
+
+    """
     init_paddings = [0]*len(kernels)
-    output_padding = calc_required_output_padding(input_dim_init=input_dim_init, kernels=kernels,strides=strides, paddings=init_paddings,verbose=verbose)
+    output_padding = calc_required_output_padding(input_dim_init=input_dim_init, kernels=kernels,strides=strides, paddings=init_paddings,verbose=verbose, conv_dim=conv_dim)
     if isinstance(output_padding,int) == True:
         possible_paddings = list(combinations_with_replacement([0,1,2], len(kernels)))
         for id_, paddings in enumerate(possible_paddings):
             if verbose:
                 print(paddings)
-            output_padding = calc_required_output_padding(input_dim_init=input_dim_init, kernels=kernels,strides=strides, paddings=paddings,verbose=verbose)
+            output_padding = calc_required_output_padding(input_dim_init=input_dim_init, kernels=kernels,strides=strides, paddings=paddings,verbose=verbose, conv_dim=conv_dim)
             if isinstance(output_padding,int) == False:
                 return list(paddings), output_padding
     return init_paddings, output_padding
+
 
 """
 #EXAMPLES:
