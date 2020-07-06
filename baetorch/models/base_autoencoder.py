@@ -735,6 +735,23 @@ class BAE_BaseClass():
         return self
 
     def nll(self, autoencoder: Autoencoder, x, y=None, mode="sigma"):
+        """
+        Computes the NLL with the autoencoder, with the given likelihood.
+        This depends on the given `mode` of whether it is hetero- or homoscedestic
+        And also whether a decoder_sigma is enabled in the autoencoder.
+        For now, mode="sigma" is only implemented for Gaussian likelihood and will only make sense in that setting.
+
+        if y is provided,
+        autoencoder : Autoencoder
+            Autoencoder to compute the NLL with
+        x : torch.Tensor
+            input data
+        y : torch.Tensor
+            target data
+        mode : str of "sigma" or "mu"
+            If "sigma", the output of the autoencoder's decoder_mu and decoder_sigma will be used for the likelihood.
+            If "mu", the autoencoder's decoder_mu and the homoscedestic term `log_noise` will be used for the likelihood.
+        """
         #likelihood
         if y is None:
             y = x
