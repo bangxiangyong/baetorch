@@ -38,7 +38,7 @@ def plot_learning_rate_finder(X, y, gp_mean,negative_peaks,minimum_lr,maximum_lr
 
 def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate",
                       min_lr_range=0.0000001, max_lr_range=10,
-                      reset_params=False, plot=True, verbose=True, save_mecha="copy", run_full=False, savefile="", savefolder="plots"):
+                      reset_params=False, plot=True, verbose=True, save_mecha="copy", run_full=False, savefile="", savefolder="plots", supervised=False, window_size=10):
     #helper function
     def round_sig(x, sig=2):
         return round(x, sig-int(floor(log10(abs(x))))-1)
@@ -67,8 +67,6 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
         lr_i = min_lr_range*(q**i)
         lr_list.append(lr_i)
 
-    #calculate smoothened loss
-    window_size = 10
 
     #forward propagate model to get loss vs learning rate
     sigma_train = sigma_train
@@ -85,7 +83,10 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
             bae_model.learning_rate = lr_list[batch_idx]
             bae_model.learning_rate_sig = lr_list[batch_idx]
             bae_model.set_optimisers(bae_model.autoencoder, mode=mode,sigma_train=sigma_train)
-            loss = bae_model.fit_one(x=data,y=data, mode=mode)
+            if supervised:
+                loss = bae_model.fit_one(x=data,y=target, mode=mode)
+            else:
+                loss = bae_model.fit_one(x=data,y=data, mode=mode)
             loss_list.append(loss)
             if (batch_idx+1)>=window_size:
                 #first time, fill up with mean
@@ -124,6 +125,7 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
 
             #prevent nan
             if np.isnan(loss):
+                print("LRTest-Loss:"+str(smoothen_loss))
                 break
     except Exception as e:
         print(e)
@@ -155,6 +157,10 @@ def run_auto_lr_range(train_loader, bae_model, mode="mu", sigma_train="separate"
     #round up to 3 significant figures
     maximum_lr = round_sig(maximum_lr,3)
     minimum_lr = round_sig(minimum_lr,3)
+    if maximum_lr <= minimum_lr:
+        temp_minimum_lr = copy.copy(maximum_lr)
+        maximum_lr = copy.copy(minimum_lr)
+        minimum_lr = temp_minimum_lr
     min_max_lr_text = "Min lr:{} , Max lr: {}".format(minimum_lr,maximum_lr)
 
     if verbose:
