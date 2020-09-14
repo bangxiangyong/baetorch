@@ -54,7 +54,7 @@ def convert_tuple_conv2d_params(input_dim, *args):
                 if isinstance(arg[i],int):
                     arg[i] = (arg[i],arg[i])
 
-        return input_dim, *args
+        return input_dim, args
 
 def calc_conv2dforward_pass(input_dim=28, strides=[], paddings=[], kernels=[]):
     """
