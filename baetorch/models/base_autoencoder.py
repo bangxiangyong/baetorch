@@ -189,15 +189,8 @@ class DenseLayers(torch.nn.Module):
         self.set_log_noise(self.init_log_noise,log_noise_size=log_noise_size)
         self.model_kwargs = kwargs
 
-
-
         #handle activation layers
-        if isinstance(activation,str) and activation == "relu":
-            self.activation_layer = F.relu
-        elif isinstance(activation,str) and activation == "tanh":
-            self.activation_layer = torch.tanh
-        else:
-            self.activation_layer = activation
+        self.activation_layer = parse_activation(activation)
 
 
     def get_input_dimensions(self):
@@ -395,6 +388,7 @@ class Autoencoder(torch.nn.Module):
         else:
             child.use_cuda = use_cuda
 
+
     def set_cuda(self, use_cuda=False):
 
         self.set_child_cuda(self.encoder,use_cuda)
@@ -431,7 +425,7 @@ class Autoencoder(torch.nn.Module):
                         log_noise_size = child.get_input_dimensions()
                         break
             self.log_noise = Parameter(torch.FloatTensor([np.log(init_log_noise)]*log_noise_size))
-        elif homoscedestic_mode== "none":
+        else:
             self.log_noise = Parameter(torch.FloatTensor([[0.]]),requires_grad=False)
 
     def reset_parameters(self):
@@ -471,7 +465,7 @@ class Autoencoder(torch.nn.Module):
 class BAE_BaseClass():
     def __init__(self, autoencoder=Autoencoder, num_samples=100, anchored=False, weight_decay=0.01,
                  num_epochs=10, verbose=True, use_cuda=False, task="regression", learning_rate=0.01, learning_rate_sig=None,
-                 homoscedestic_mode="none", model_type="stochastic", model_name="BAE", scheduler_enabled=False, likelihood="gaussian", denoising_factor=0, output_clamp=(-10,10)):
+                 homoscedestic_mode="none", model_type="stochastic", model_name="BAE", scheduler_enabled=False, likelihood="gaussian", denoising_factor=0, output_clamp=(0,0)):
 
         #save kwargs
         self.num_samples = num_samples
@@ -736,6 +730,9 @@ class BAE_BaseClass():
         if self.scheduler_enabled:
             self.step_scheduler()
 
+        if self.use_cuda:
+            x.cpu()
+            y.cpu()
         return loss.item()
 
     def print_loss(self, epoch,loss):
@@ -775,6 +772,11 @@ class BAE_BaseClass():
                 loss = self.fit_one(x=x,y=y, mode=mode)
                 self.losses.append(loss)
                 self.print_loss(epoch,self.losses[-1])
+
+                #free up GPU if it is used
+                if self.use_cuda:
+                    x.cpu()
+                    y.cpu()
         return self
 
     def nll(self, autoencoder: Autoencoder, x, y=None, mode="sigma"):
@@ -855,7 +857,7 @@ class BAE_BaseClass():
 
         return nll + prior_loss
 
-    def _predict_samples(self,x, model_type=0):
+    def _predict_samples(self,x, model_type=0, select_keys=["y_mu","y_sigma","se","bce","cbce","nll_homo","nll_sigma"]):
         """
         Internal method, to be overriden by developer with how predictive samples should
         be collected.
@@ -886,9 +888,9 @@ class BAE_BaseClass():
 
         #handle different model types
         if model_type == "list":
-            y_preds = [list(self.calc_output_single(model, x)) for model in self.autoencoder]
+            y_preds = [list(self.calc_output_single(model, x,select_keys=select_keys)) for model in self.autoencoder]
         elif model_type == "stochastic":
-            y_preds = [list(self.calc_output_single(self.autoencoder, x)) for i in range(self.num_samples)]
+            y_preds = [list(self.calc_output_single(self.autoencoder, x,select_keys=select_keys)) for i in range(self.num_samples)]
 
         return y_preds
 
@@ -912,14 +914,17 @@ class BAE_BaseClass():
         return final_results
 
 
-    def predict_samples(self,x):
+    def predict_samples(self,x, select_keys=["y_mu","y_sigma","se","bce","cbce","nll_homo","nll_sigma"]):
         """
         Returns raw samples from each forward pass of the AE models
         """
+        original_shape = x.shape
         x = self.convert_tensor(x)
-        y_preds = self._predict_samples(x)
+        y_preds = self._predict_samples(x,select_keys=select_keys)
 
         y_preds = np.array(y_preds)
+        y_preds = y_preds.reshape(self.num_samples,len(select_keys),*list(original_shape))
+
         return y_preds
 
     def predict(self,x,exclude_keys=[]):
@@ -1022,21 +1027,43 @@ class BAE_BaseClass():
 
         return flatten_np(y_mu), flatten_np(y_sigma), log_noise
 
-    def calc_output_single(self, autoencoder, x):
+    def calc_output_single(self, autoencoder, x, select_keys=["y_mu","y_sigma","se","bce","cbce","nll_homo","nll_sigma"]):
+        """
+        Computes the output of autoencoder per sample. Given the selected keys, we specify the output not only to be the reconstructed signal, but options of
+        squared error (`se`), Gaussian negative loglikelihood (`nll_homo`), etc. This function is used later for every sampled autoencoder from the posterior weights.
+        """
         #per sample
         y_mu, y_sigma, log_noise = self._get_mu_sigma_single(autoencoder, x)
 
         #clamp it to min max
-        y_mu = np.clip(y_mu, a_min=self.output_clamp[0],a_max=self.output_clamp[1])
+        if self.output_clamp:
+            y_mu = np.clip(y_mu, a_min=self.output_clamp[0],a_max=self.output_clamp[1])
 
+        #return keys
+        outputs = []
         x = flatten_np(x.detach().cpu().numpy())
-        se = (y_mu-x)**2
-        bce = self.bce_loss_np(y_mu,x)
-        cbce = self.cbce_loss_np(y_mu,x)
-        nll_homo = -self.log_gaussian_loss_logsigma_np(y_mu,x,log_noise)
-        nll_sigma = -self.log_gaussian_loss_logsigma_np(y_mu,x,y_sigma)
+        for key in select_keys:
+            if key == "y_mu":
+                outputs.append(y_mu)
+            elif key == "y_sigma":
+                outputs.append(np.exp(y_sigma))
+            elif key == "se":
+                se = (y_mu-x)**2
+                outputs.append(se)
+            elif key == "bce":
+                bce = self.bce_loss_np(y_mu,x)
+                outputs.append(bce)
+            elif key == "cbce":
+                cbce = self.cbce_loss_np(y_mu,x)
+                outputs.append(cbce)
+            elif key == "nll_homo":
+                nll_homo = -self.log_gaussian_loss_logsigma_np(y_mu,x,log_noise)
+                outputs.append(nll_homo)
+            elif key == "nll_sigma":
+                nll_sigma = -self.log_gaussian_loss_logsigma_np(y_mu,x,y_sigma)
+                outputs.append(nll_sigma)
 
-        return y_mu, np.exp(y_sigma), se,bce,cbce, nll_homo,nll_sigma
+        return tuple(outputs)
 
     def log_gaussian_loss_logsigma_torch(self, y_pred, y_true, log_sigma):
         log_likelihood = (-((y_true - y_pred)**2)*torch.exp(-log_sigma)*0.5)-(0.5*log_sigma)
@@ -1140,3 +1167,4 @@ class BAE_BaseClass():
         else:
             for model in self.autoencoder:
                 model.set_cuda(use_cuda)
+        return self
