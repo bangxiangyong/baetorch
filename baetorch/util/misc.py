@@ -1,6 +1,5 @@
 import torch
 import os
-import pickle
 import copy
 
 def create_dir(folder="plots"):
@@ -48,7 +47,10 @@ class AddNoise(object):
 
 def save_bae_model(model,folder="trained_models/"):
     create_dir(folder)
-    pickle.dump(model, open(folder+model.model_name+".p", "wb"))
+    model_path = folder+model.model_name+".p"
+    # pickle.dump(model, open(folder+model.model_name+".p", "wb"))
+    model.set_cuda(False)
+    torch.save(model,model_path)
 
 def load_bae_model(model_name, folder="pickles/"):
     #add '.p' to filename if not already
@@ -58,7 +60,9 @@ def load_bae_model(model_name, folder="pickles/"):
     if folder[-1] != '/':
         folder = folder+"/"
     #load pickled model
-    bae_model = pickle.load( open(folder+model_name, "rb"))
+    # bae_model = pickle.load( open(folder+model_name, "rb"))
+    model_path = folder+model_name
+    bae_model = torch.load(model_path,map_location=torch.device('cpu'))
     return bae_model
 
 def save_csv_pd(results_pd,folder="results",train_set_name="FashionMNIST",title="auroc"):
