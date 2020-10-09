@@ -36,6 +36,7 @@ import torch.nn.functional as F
 
 from baetorch.baetorch.models.base_layer import ConvLayers, Conv2DLayers, Conv1DLayers, DenseLayers, Reshape, Flatten, \
     flatten_torch, flatten_np
+from baetorch.baetorch.models.cholesky_layer import CholLayer
 from ..util.dense_util import parse_architecture_string
 from ..util.misc import create_dir
 import numpy as np
@@ -151,7 +152,9 @@ class Encoder(torch.nn.Sequential):
 
 #Autoencoder base class
 class Autoencoder(torch.nn.Module):
-    def __init__(self, encoder: torch.nn.Sequential, decoder_mu=None, decoder_sig=None, homoscedestic_mode="none", use_cuda=False):
+    def __init__(self, encoder: torch.nn.Sequential, decoder_mu=None,
+                 decoder_sig=None,
+                 homoscedestic_mode="none", use_cuda=False, decoder_cluster=None):
         super(Autoencoder, self).__init__()
         self.encoder = encoder
 
@@ -163,9 +166,24 @@ class Autoencoder(torch.nn.Module):
         #decoder sig status
         if decoder_sig is None:
             self.decoder_sig_enabled = False
+            self.decoder_full_cov_enabled = False
         else:
             self.decoder_sig_enabled = True
             self.decoder_sig = decoder_sig
+            # check for full cov. decoder sig or regular diag cov.
+            # based on the layer type, for now, only CholLayer can be
+            # recognised for enabling full covariance calculation
+            if isinstance(self.decoder_sig, CholLayer):
+                self.decoder_full_cov_enabled = True
+            else:
+                self.decoder_full_cov_enabled = False
+
+        #decoder cluster status
+        if decoder_cluster is None:
+            self.decoder_cluster_enabled = False
+        else:
+            self.decoder_cluster_enabled = True
+            self.decoder_cluster = decoder_cluster
 
         #log noise mode
         self.homoscedestic_mode = homoscedestic_mode
@@ -193,6 +211,9 @@ class Autoencoder(torch.nn.Module):
 
         if self.decoder_sig_enabled:
             self.set_child_cuda(self.decoder_sig,use_cuda)
+        if self.decoder_cluster_enabled:
+            self.set_child_cuda(self.decoder_cluster,use_cuda)
+
         self.use_cuda = use_cuda
 
         if use_cuda:
@@ -230,6 +251,9 @@ class Autoencoder(torch.nn.Module):
         self._reset_nested_parameters(self.decoder_mu)
         if self.decoder_sig_enabled:
             self._reset_nested_parameters(self.decoder_sig)
+        if self.decoder_cluster_enabled:
+            self._reset_nested_parameters(self.decoder_cluster)
+
         return self
 
     def _reset_parameters(self,child_layer):
@@ -250,19 +274,25 @@ class Autoencoder(torch.nn.Module):
     def forward(self, x):
         encoded = self.encoder(x)
         decoded_mu = self.decoder_mu(encoded)
+        decoded_list = [decoded_mu]
 
         if self.decoder_sig_enabled:
             decoded_sig = self.decoder_sig(encoded)
-            return tuple([decoded_mu,decoded_sig])
-        else:
-            return decoded_mu
+            decoded_list.append(decoded_sig)
+
+        if self.decoder_cluster_enabled:
+            decoded_cluster = self.decoder_cluster(encoded)
+            decoded_list.append(decoded_cluster)
+        return tuple(decoded_list)
 
 ###MODEL MANAGER: FIT/PREDICT
 #BAE Base class
 class BAE_BaseClass():
-    def __init__(self, autoencoder=Autoencoder, num_samples=100, anchored=False, weight_decay=0.01,
+    def __init__(self, autoencoder:Autoencoder, num_samples=100, anchored=False, weight_decay=0.01,
                  num_epochs=10, verbose=True, use_cuda=False, task="regression", learning_rate=0.01, learning_rate_sig=None,
-                 homoscedestic_mode="none", model_type="stochastic", model_name="BAE", scheduler_enabled=False, likelihood="gaussian", denoising_factor=0, output_clamp=(0,0)):
+                 homoscedestic_mode="none", model_type="stochastic", model_name="BAE", scheduler_enabled=False,
+                 likelihood="gaussian", denoising_factor=0, cluster_weight=1., output_clamp=(0,0)):
+
         if autoencoder is None:
             raise ValueError("Autoencoder cannot be None in instantiating BAE. Please pass an Autoencoder model.")
 
@@ -284,6 +314,7 @@ class BAE_BaseClass():
         self.likelihood = likelihood
         self.denoising_factor = denoising_factor
         self.num_iterations = 1
+        self.cluster_weight = cluster_weight
 
         #set output clamp
         if output_clamp == (0,0):
@@ -307,8 +338,26 @@ class BAE_BaseClass():
 
         #init BAE
         self.decoder_sigma_enabled = autoencoder.decoder_sig_enabled
+        self.decoder_cluster_enabled = autoencoder.decoder_cluster_enabled
+        self.decoder_full_cov_enabled = autoencoder.decoder_full_cov_enabled
         self.autoencoder = self.init_autoencoder(autoencoder)
         self.set_optimisers(self.autoencoder, self.mode)
+
+        #overwrite likelihood to be full gaussian, if decoder full cov is enabled
+        if self.decoder_full_cov_enabled:
+            self.likelihood = "full_gaussian"
+
+        #init index of autoencoder outputs, due to possibility of multiple decoders
+        if self.decoder_sigma_enabled and self.decoder_cluster_enabled:
+           self.decoder_sig_index = 1
+           self.decoder_cluster_index = 2
+        elif self.decoder_sigma_enabled:
+           self.decoder_sig_index = 1
+        elif self.decoder_cluster_enabled:
+           self.decoder_cluster_index = 1
+
+        if self.decoder_cluster_enabled:
+            self.kl_div_func = torch.nn.KLDivLoss()
 
     def save_model_state(self, filename=None, folder_path="torch_model/"):
         create_dir(folder_path)
@@ -414,6 +463,9 @@ class BAE_BaseClass():
             optimiser_list.append({'params':autoencoder.encoder.parameters()})
             optimiser_list.append({'params':autoencoder.decoder_mu.parameters()})
             optimiser_list.append({'params':autoencoder.log_noise})
+
+        if self.decoder_cluster_enabled:
+            optimiser_list.append({'params':autoencoder.decoder_cluster.parameters()})
 
         return optimiser_list
 
@@ -599,19 +651,32 @@ class BAE_BaseClass():
         #likelihood
         if y is None:
             y = x
+
         #get outputs of autoencoder, depending on the number of decoders
         #that is, if decoder sigma is enabled or not
+        ae_output = autoencoder(x)
+        y_pred_mu = ae_output[0]
         if self.decoder_sigma_enabled:
-            y_pred_mu, y_pred_sig = autoencoder(x)
-        else:
-            y_pred_mu = autoencoder(x)
+            y_pred_sig = ae_output[self.decoder_sig_index]
 
         #depending on the mode, we compute the nll
         if mode=="sigma":
-            nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), flatten_torch(y_pred_sig))
+            nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), y_pred_sig)
         elif mode =="mu":
-            nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
-        return nll
+            #temporary switch for handling full gaussian mode
+            if self.likelihood == "full_gaussian":
+                self.likelihood = "gaussian"
+                nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
+                self.likelihood = "full_gaussian"
+            else:
+                nll = self._nll(flatten_torch(y_pred_mu), flatten_torch(y), autoencoder.log_noise)
+
+        if self.decoder_cluster_enabled:
+            y_pred_cluster = ae_output[self.decoder_cluster_index]
+            cluster_loss = self.cluster_loss(y_pred_cluster)
+            return nll + self.cluster_weight *cluster_loss
+        else:
+            return nll
 
     def _nll(self, y_pred_mu, y, y_pred_sig=None):
         if self.likelihood == "gaussian":
@@ -624,7 +689,8 @@ class BAE_BaseClass():
             nll = self.log_cbernoulli_loss_torch(flatten_torch(y_pred_mu), flatten_torch(y))
         elif self.likelihood == "truncated_gaussian":
             nll = -self.log_truncated_loss_torch(flatten_torch(y_pred_mu), flatten_torch(y), flatten_torch(y_pred_sig))
-
+        elif self.likelihood == "full_gaussian":
+            nll = self.loss_full_gaussian_torch(flatten_torch(y) - flatten_torch(y_pred_mu), *y_pred_sig)
         return nll
 
     def criterion(self, autoencoder: Autoencoder, x,y=None, mode="sigma"):
@@ -705,9 +771,20 @@ class BAE_BaseClass():
         y_preds = self._predict_samples(x,select_keys=select_keys)
 
         y_preds = np.array(y_preds)
-        y_preds = y_preds.reshape(self.num_samples,len(select_keys),*list(original_shape))
+        try:
+            y_preds = y_preds.reshape(self.num_samples,len(select_keys),*list(original_shape))
+        except Exception as e:
+            y_preds = y_preds.reshape(self.num_samples,len(select_keys),original_shape[0])
 
         return y_preds
+
+    def predict_cluster(self, x, encode=True):
+        x = self.convert_tensor(x)
+        if self.model_type == "list":
+            if encode:
+                return np.array([ae.decoder_cluster(ae.encoder(x)).detach().cpu().numpy() for ae in self.autoencoder])
+            else:
+                return np.array([ae.decoder_cluster(x).detach().cpu().numpy() for ae in self.autoencoder])
 
     def predict(self,x,exclude_keys=[]):
         """
@@ -796,18 +873,30 @@ class BAE_BaseClass():
         return cbce
 
     def _get_mu_sigma_single(self, autoencoder, x):
+        ae_output = autoencoder(x)
+        y_mu = ae_output[0]
         if self.decoder_sigma_enabled:
-            y_mu, y_sigma = autoencoder(x)
+            y_sigma = ae_output[self.decoder_sig_index]
         else:
-            y_mu = autoencoder(x)
             y_sigma = torch.ones_like(y_mu)
+        if self.decoder_cluster_enabled:
+            y_cluster = ae_output[self.decoder_cluster_index].detach().cpu().numpy()
 
         #convert to numpy
         y_mu = y_mu.detach().cpu().numpy()
-        y_sigma = y_sigma.detach().cpu().numpy()
+
+        if self.decoder_full_cov_enabled:
+            #convert chol tril and log noise to numpy
+            y_sigma = tuple([y_sigma_i.detach().cpu().numpy() for y_sigma_i in y_sigma])
+        else:
+            y_sigma = y_sigma.detach().cpu().numpy()
+            y_sigma = flatten_np(y_sigma)
         log_noise = autoencoder.log_noise.detach().cpu().numpy()
 
-        return flatten_np(y_mu), flatten_np(y_sigma), log_noise
+        if self.decoder_cluster_enabled:
+            return flatten_np(y_mu), y_sigma, log_noise, y_cluster
+        else:
+            return flatten_np(y_mu), y_sigma, log_noise
 
     def calc_output_single(self, autoencoder, x, select_keys=["y_mu","y_sigma","se","bce","cbce","nll_homo","nll_sigma"]):
         """
@@ -815,20 +904,33 @@ class BAE_BaseClass():
         squared error (`se`), Gaussian negative loglikelihood (`nll_homo`), etc. This function is used later for every sampled autoencoder from the posterior weights.
         """
         #per sample
-        y_mu, y_sigma, log_noise = self._get_mu_sigma_single(autoencoder, x)
+        if self.decoder_cluster_enabled:
+            y_mu, y_sigma, log_noise, y_cluster = self._get_mu_sigma_single(autoencoder, x)
+        else:
+            y_mu, y_sigma, log_noise = self._get_mu_sigma_single(autoencoder, x)
 
         #clamp it to min max
         if self.output_clamp:
             y_mu = np.clip(y_mu, a_min=self.output_clamp[0],a_max=self.output_clamp[1])
 
+        #flatten x into numpy array
+        x = flatten_np(x.detach().cpu().numpy())
+
+        return self._calc_output_single(x, y_mu=y_mu, y_sigma=y_sigma, log_noise=log_noise, select_keys=select_keys)
+
+    def _calc_output_single(self, x, y_mu, y_sigma, log_noise, select_keys=["y_mu","y_sigma","se","bce","cbce","nll_homo","nll_sigma"]):
         #return keys
         outputs = []
-        x = flatten_np(x.detach().cpu().numpy())
+
         for key in select_keys:
             if key == "y_mu":
                 outputs.append(y_mu)
             elif key == "y_sigma":
-                outputs.append(np.exp(y_sigma))
+                if self.decoder_full_cov_enabled:
+                    exp_y_sig = np.exp(y_sigma[-1])
+                else:
+                    exp_y_sig = np.exp(y_sigma)
+                outputs.append(exp_y_sig)
             elif key == "se":
                 se = (y_mu-x)**2
                 outputs.append(se)
@@ -842,9 +944,11 @@ class BAE_BaseClass():
                 nll_homo = -self.log_gaussian_loss_logsigma_np(y_mu,x,log_noise)
                 outputs.append(nll_homo)
             elif key == "nll_sigma":
-                nll_sigma = -self.log_gaussian_loss_logsigma_np(y_mu,x,y_sigma)
+                if self.decoder_full_cov_enabled:
+                    nll_sigma = -self.loss_full_gaussian_np(x-y_mu,*y_sigma)
+                else:
+                    nll_sigma = -self.log_gaussian_loss_logsigma_np(y_mu,x,y_sigma)
                 outputs.append(nll_sigma)
-
         return tuple(outputs)
 
     def log_gaussian_loss_logsigma_torch(self, y_pred, y_true, log_sigma):
@@ -862,6 +966,47 @@ class BAE_BaseClass():
     def log_gaussian_loss_sigma_2_np(self, y_pred, y_true, sigma_2):
         log_likelihood = (-((y_true - y_pred)**2)/(2*sigma_2))-(0.5*np.log(sigma_2))
         return log_likelihood
+
+    def cluster_loss(self, cluster_output):
+        #calculate target distribution
+        tar_dist = cluster_output ** 2 / torch.sum(cluster_output, axis=0)
+        tar_dist = torch.transpose(torch.transpose(tar_dist,0,1) / torch.sum(tar_dist, axis=1),0,1)
+
+        #calculate KL divergence
+        loss_clust = -self.kl_div_func(torch.log(cluster_output), tar_dist)/cluster_output.shape[0]
+        return loss_clust
+
+    def loss_full_gaussian_torch(self, y, chol_lower_tri, log_noise):
+        #handle batch size of 1 by unsqueezing them
+        if len(y.shape) == 1:
+            y = y.unsqueeze(0)
+            chol_lower_tri = chol_lower_tri.unsqueeze(0)
+            log_noise = log_noise.unsqueeze(0)
+
+        #calculate reconstruction loss
+        chol_y = torch.matmul(torch.transpose(torch.exp(chol_lower_tri),2,1),y.unsqueeze(-1))
+        chol_recon_loss = torch.matmul(torch.transpose(chol_y,2,1),chol_y)
+        chol_recon_loss = chol_recon_loss.view(-1,1)
+
+        #calculate log determinant
+        log_det = (-2*(log_noise.sum(-1))).view(-1,1)
+        return chol_recon_loss + log_det
+
+    def loss_full_gaussian_np(self, y, chol_lower_tri, log_noise):
+        #handle batch size of 1 by unsqueezing them
+        if len(y.shape) == 1:
+            y = np.expand_dims(y,0)
+            chol_lower_tri = np.expand_dims(chol_lower_tri,0)
+            log_noise = np.expand_dims(log_noise,0)
+
+        #calculate reconstruction loss
+        chol_y = np.matmul(np.transpose(np.exp(chol_lower_tri),(0,2,1)),np.expand_dims(y,-1))
+        chol_recon_loss = np.matmul(np.transpose(chol_y,(0,2,1)),chol_y)
+        chol_recon_loss = chol_recon_loss.reshape(-1,1)
+
+        #calculate log determinant
+        log_det = (-2*(log_noise.sum(-1))).reshape(-1,1)
+        return chol_recon_loss + log_det
 
     def log_truncated_loss_torch(self, y_pred_mu, y_true,y_pred_sig):
         if hasattr(self, "trunc_g") == False:
