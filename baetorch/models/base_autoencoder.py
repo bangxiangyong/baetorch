@@ -111,18 +111,21 @@ class Encoder(torch.nn.Sequential):
             if isinstance(layer, ConvLayers):
                 has_conv_layer = True
         self.has_conv_layer = has_conv_layer
+        dense_layer = layer_list[-1]
+        self.latent_dim = dense_layer.output_size
 
         if has_conv_layer:
-            dense_layer = layer_list[-1]
+
             conv_layer = layer_list[0]
 
             #reset dense layer inputs to match that of flattened Conv2D Output size
             dense_layer.layers = dense_layer.init_layers(input_size=conv_layer.get_output_dimensions(input_dim)[-1])
 
+
+
             #append flatten layer in between
             return (conv_layer,Flatten(), dense_layer)
         else:
-            dense_layer = layer_list[-1]
             return (Flatten(), dense_layer)
 
     def get_conv_layers(self):
@@ -137,6 +140,14 @@ class Encoder(torch.nn.Sequential):
         for child in self.children():
             if hasattr(child,"get_input_dimensions"):
                 return child.get_input_dimensions(flatten)
+
+    @property
+    def activation(self):
+        return list(self.children())[-1].activation
+
+    @property
+    def last_activation(self):
+        return list(self.children())[-1].last_activation
 
 #Autoencoder base class
 class Autoencoder(torch.nn.Module):
@@ -162,6 +173,10 @@ class Autoencoder(torch.nn.Module):
 
         #set cuda
         self.set_cuda(use_cuda)
+
+    @property
+    def latent_dim(self):
+        return self.encoder.latent_dim
 
     def set_child_cuda(self, child, use_cuda=False):
         if isinstance(child, torch.nn.Sequential):
@@ -248,6 +263,8 @@ class BAE_BaseClass():
     def __init__(self, autoencoder=Autoencoder, num_samples=100, anchored=False, weight_decay=0.01,
                  num_epochs=10, verbose=True, use_cuda=False, task="regression", learning_rate=0.01, learning_rate_sig=None,
                  homoscedestic_mode="none", model_type="stochastic", model_name="BAE", scheduler_enabled=False, likelihood="gaussian", denoising_factor=0, output_clamp=(0,0)):
+        if autoencoder is None:
+            raise ValueError("Autoencoder cannot be None in instantiating BAE. Please pass an Autoencoder model.")
 
         #save kwargs
         self.num_samples = num_samples
@@ -561,7 +578,7 @@ class BAE_BaseClass():
                     y.cpu()
         return self
 
-    def nll(self, autoencoder: Autoencoder, x, y=None, mode="sigma"):
+    def nll(self, autoencoder: Autoencoder, x, y=None, mode="mu"):
         """
         Computes the NLL with the autoencoder, with the given likelihood.
         This depends on the given `mode` of whether it is hetero- or homoscedestic
@@ -609,23 +626,6 @@ class BAE_BaseClass():
             nll = -self.log_truncated_loss_torch(flatten_torch(y_pred_mu), flatten_torch(y), flatten_torch(y_pred_sig))
 
         return nll
-
-    def log_truncated_loss_torch(self, y_pred_mu, y_true,y_pred_sig):
-        if hasattr(self, "trunc_g") == False:
-            self.trunc_g = TruncatedGaussian(use_cuda=self.use_cuda)
-        nll_trunc_g = self.trunc_g.truncated_log_pdf(y_true,y_pred_mu,torch.exp(y_pred_sig))
-        return nll_trunc_g
-
-    def log_cbernoulli_loss_torch(self, y_pred_mu, y_true):
-        if hasattr(self, "cb") == False:
-            self.cb = CB_Distribution()
-        nll_cb = self.cb.log_cbernoulli_loss_torch(y_pred_mu,y_true)
-        return nll_cb
-
-    def log_cbernoulli_loss_np(self, y_pred_mu, y_true):
-        if hasattr(self, "cb") == False:
-            self.cb = CB_Distribution()
-        return self.cb.log_cbernoulli_loss_np(torch.from_numpy(y_pred_mu),torch.from_numpy(y_true))
 
     def criterion(self, autoencoder: Autoencoder, x,y=None, mode="sigma"):
         #likelihood
@@ -863,6 +863,23 @@ class BAE_BaseClass():
         log_likelihood = (-((y_true - y_pred)**2)/(2*sigma_2))-(0.5*np.log(sigma_2))
         return log_likelihood
 
+    def log_truncated_loss_torch(self, y_pred_mu, y_true,y_pred_sig):
+        if hasattr(self, "trunc_g") == False:
+            self.trunc_g = TruncatedGaussian(use_cuda=self.use_cuda)
+        nll_trunc_g = self.trunc_g.truncated_log_pdf(y_true,y_pred_mu,torch.exp(y_pred_sig))
+        return nll_trunc_g
+
+    def log_cbernoulli_loss_torch(self, y_pred_mu, y_true):
+        if hasattr(self, "cb") == False:
+            self.cb = CB_Distribution()
+        nll_cb = self.cb.log_cbernoulli_loss_torch(y_pred_mu,y_true)
+        return nll_cb
+
+    def log_cbernoulli_loss_np(self, y_pred_mu, y_true):
+        if hasattr(self, "cb") == False:
+            self.cb = CB_Distribution()
+        return self.cb.log_cbernoulli_loss_np(torch.from_numpy(y_pred_mu),torch.from_numpy(y_true))
+
     def log_prior_loss(self, model, mu=torch.Tensor([0.]), L=2):
         #prior 0 ,1
         if self.anchored:
@@ -925,18 +942,13 @@ class BAE_BaseClass():
         Since BAE is probabilistic, we can obtain mean and variance of the latent dimensions for each data
         """
         x = self.convert_tensor(x)
-        latent_data = self.predict_latent_samples(x)
-        latent_mu = latent_data.mean(0).detach().cpu().numpy()
-        latent_sigma = latent_data.var(0).detach().cpu().numpy()
+        latent_data = self.predict_latent_samples(x).detach().cpu().numpy()
 
-        #transform pca
         if transform_pca:
             pca = PCA(n_components=2)
-            latent_pca_mu = pca.fit_transform(latent_mu)
-            latent_pca_sig = pca.fit_transform(latent_sigma)
-            return latent_pca_mu,latent_pca_sig
-        else:
-            return latent_mu, latent_sigma
+            latent_data_ = np.array([pca.fit_transform(latent_data[latent_sample_i]) for latent_sample_i in range(latent_data.shape[0])])
+            latent_data = latent_data_
+        return latent_data.mean(0), latent_data.var(0)
 
     def set_cuda(self, use_cuda=None):
         if use_cuda is None:
