@@ -297,3 +297,33 @@ def plot_train_loss(model,savefile="",savefolder="plots"):
     if '.png' in savefile:
         create_dir(savefolder)
         plt.savefig(savefolder+"/"+savefile)
+
+def get_grid2d_latent(latent_data, span=1):
+    """
+    Returns a grid for plotting contours by providing the reference 2D data
+
+    Parameters
+    ----------
+    latent_data : 2D numpy array
+        This is assumed to be the latent space for reference or input of 2D
+    span : float or int
+        The buffer distance to be padded along the min-max of latent_data
+
+    """
+    grid = np.mgrid[latent_data[:,0].min()-span:latent_data[:,0].max()+span:100j,
+           latent_data[:,1].min()-span:latent_data[:,1].max()+span:100j]
+    grid_2d = grid.reshape(2, -1).T
+    return grid, grid_2d
+
+def plot_contour(contour_data, grid, figsize=(16,9),cmap='Greys', colorbar=True, fig=None, ax=None):
+    """
+    Plot contour map.
+    Grid can be easily generated via the `get_grid2d_latent`
+    """
+    levels = np.linspace(contour_data.min()*10,contour_data.max()*10,25)
+    if fig is None and ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    contour = ax.contourf(grid[0], grid[1], contour_data.reshape(100, 100)*10, levels=levels, cmap=cmap)
+    if colorbar:
+        fig.colorbar(contour)
+    return fig, ax
