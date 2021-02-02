@@ -157,7 +157,7 @@ class DenseLayers(torch.nn.Module):
         self.set_log_noise(self.init_log_noise,log_noise_size=log_noise_size)
         self.model_kwargs = kwargs
 
-    def get_input_dimensions(self):
+    def get_input_dimensions(self, flatten=True):
         return self.input_size
 
     def set_log_noise(self, log_noise,log_noise_size=1):
