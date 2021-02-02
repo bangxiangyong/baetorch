@@ -623,11 +623,6 @@ class BAE_BaseClass():
                 loss = self.fit_one(x=x,y=y, mode=mode)
                 self.losses.append(loss)
                 self.print_loss(epoch,self.losses[-1])
-
-                #free up GPU if it is used
-                if self.use_cuda:
-                    x.cpu()
-                    y.cpu()
         return self
 
     def nll(self, autoencoder: Autoencoder, x, y=None, mode="mu"):
