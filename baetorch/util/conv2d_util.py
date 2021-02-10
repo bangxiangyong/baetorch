@@ -49,12 +49,16 @@ def convert_tuple_conv2d_params(input_dim, *args):
     if len(args) == 0:
         return input_dim
     else:
-        for arg in args:
-            for i in range(len(arg)):
-                if isinstance(arg[i],int):
-                    arg[i] = (arg[i],arg[i])
+        temp_args = list(args)
+        for i, arg in enumerate(temp_args):
+            if isinstance(arg,tuple):
+                arg = list(arg)
+                temp_args[i] = arg
+            for j, arg_inner in enumerate(arg):
+                if isinstance(arg_inner, int):
+                    arg[j] = [arg_inner,arg_inner]
 
-        return input_dim, args
+        return (input_dim, *temp_args)
 
 def calc_conv2dforward_pass(input_dim=28, strides=[], paddings=[], kernels=[]):
     """
@@ -226,7 +230,7 @@ def calc_conv2dtranspose_pass(input_dim=2,output_padding=[],strides=[],paddings=
 
     output_dimensions = []
     #convert a single input into tuple
-    input_dim, strides, paddings, kernels, output_padding = convert_tuple_conv2d_params(input_dim, strides, paddings, kernels,output_padding)
+    input_dim, s_reverse, p_reverse, k_reverse,output_padding = convert_tuple_conv2d_params(input_dim, s_reverse, p_reverse, k_reverse,output_padding)
 
     for num_layer, _ in enumerate(kernels):
         if num_layer == 0:
@@ -288,23 +292,36 @@ def reached_target_dims(d_temp, target_dims):
 
 def get_updated_output_padding(output_padding, current_dims, target_dims, kernels):
     #sequential
-    temp_output_padding = copy.copy(output_padding)
+    temp_output_padding = np.array(output_padding)
+    current_dims = np.array(current_dims)
+    target_dims = np.array(target_dims)
+    kernels = np.array(kernels)
+
     for num_layer, _ in enumerate(kernels):
         # required_output_padding = calc_output_padding(s=s_reverse[num_layer],p=p_reverse[num_layer],i=decode_input_dim,k=k_reverse[num_layer],o=target_dims[num_layer])
         required_output_padding =target_dims[num_layer]-current_dims[num_layer]
-        if required_output_padding != 0:
+        if required_output_padding.any():
             #fails the test, update the current_output_padding to that of the required one
             temp_output_padding[num_layer] = temp_output_padding[num_layer]+required_output_padding
             return temp_output_padding
-    return temp_output_padding
+
+    current_dims = list(current_dims)
+    target_dims = list(target_dims)
+    kernels = list(kernels)
+
+    return list(temp_output_padding)
 
 def calc_required_output_padding(input_dim_init=28, kernels=[5,5,2],strides=[2,2,2], paddings=[0,0,0],verbose=True, conv_dim=2):
     if conv_dim == 2:
         encode_dims = calc_conv2dforward_pass(input_dim=input_dim_init, strides=strides, paddings=paddings, kernels=kernels)
+        if isinstance(input_dim_init, int):
+            target_dims = calc_target_dims(encode_dims, input_dim_init=[input_dim_init]*2)
+        else:
+            target_dims = calc_target_dims(encode_dims, input_dim_init=input_dim_init)
+
     else:
         encode_dims = calc_conv1dforward_pass(input_dim=input_dim_init, strides=strides, paddings=paddings, kernels=kernels)
-
-    target_dims = calc_target_dims(encode_dims, input_dim_init=input_dim_init)
+        target_dims = calc_target_dims(encode_dims, input_dim_init=input_dim_init)
 
     output_padding_init = [0] * len(kernels)
 
@@ -319,6 +336,7 @@ def calc_required_output_padding(input_dim_init=28, kernels=[5,5,2],strides=[2,2
     output_padding_new = copy.copy(output_padding_init)
     if verbose:
         print("REQ OUTPUT PADDING, DEC-DIM, TARG-DIM :\n"+str([output_padding_init,decode_dims_i,target_dims]))
+
     while (reached_target_dims(decode_dims_i, target_dims) == False and current_i < max_iterations):
         output_padding_new = get_updated_output_padding(output_padding_new, decode_dims_i, target_dims, kernels)
         if conv_dim == 2:
@@ -326,12 +344,20 @@ def calc_required_output_padding(input_dim_init=28, kernels=[5,5,2],strides=[2,2
         else:
             decode_dims_i = calc_conv1dtranspose_pass(input_dim=encode_dims[-1], output_padding=output_padding_new, strides=strides, paddings=paddings, kernels=kernels)
 
+        output_padding_new = np.array(output_padding_new)
+        if np.any(output_padding_new== -1):
+            return -1
+
         current_i+=1
 
-        if verbose:
-            print([output_padding_new,decode_dims_i,target_dims])
-        if -1 in output_padding_new:
-            return -1
+    output_padding_new = list(output_padding_new)
+    for i, output_padding_inner in enumerate(output_padding_new):
+        if isinstance(output_padding_inner, np.ndarray):
+            output_padding_new[i] = list(output_padding_inner)
+
+    if verbose:
+        print([output_padding_new,decode_dims_i,target_dims])
+
     return output_padding_new
 
 def calc_required_padding(input_dim_init=28, kernels=[5, 5, 2], strides=[2, 2, 2], verbose=True, conv_dim=2):
@@ -343,6 +369,7 @@ def calc_required_padding(input_dim_init=28, kernels=[5, 5, 2], strides=[2, 2, 2
     """
     init_paddings = [0]*len(kernels)
     output_padding = calc_required_output_padding(input_dim_init=input_dim_init, kernels=kernels,strides=strides, paddings=init_paddings,verbose=verbose, conv_dim=conv_dim)
+
     if isinstance(output_padding,int) == True:
         possible_paddings = list(combinations_with_replacement([0,1,2], len(kernels)))
         for id_, paddings in enumerate(possible_paddings):

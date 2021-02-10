@@ -44,6 +44,8 @@ class ConvLayers(torch.nn.Module):
         else:
             self.conv_padding = self.convert_int_to_list(self.conv_padding,len(self.conv_architecture)-1)
             self.output_padding = output_padding
+        if isinstance(self.output_padding, np.ndarray):
+            self.output_padding = tuple(self.output_padding)
 
         self.last_activation = last_activation
 
