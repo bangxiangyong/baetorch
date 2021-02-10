@@ -87,9 +87,14 @@ def infer_decoder(encoder=[],latent_dim=None, last_activation="sigmoid", activat
                 latent_dim = copy.deepcopy(encoder_layer.output_size)
 
             dense_architecture.reverse()
-            decoder_dense= DenseLayers(architecture=dense_architecture,input_size=latent_dim,
-                                       output_size=encoder_layer.input_size,
-                                       activation=activation, last_activation=last_activation)
+            if has_conv_layer:
+                decoder_dense= DenseLayers(architecture=dense_architecture,input_size=latent_dim,
+                                           output_size=encoder_layer.input_size,
+                                           activation=activation, last_activation=activation)
+            else:
+                decoder_dense= DenseLayers(architecture=dense_architecture,input_size=latent_dim,
+                                           output_size=encoder_layer.input_size,
+                                           activation=activation, last_activation=last_activation)
             decoder.append(decoder_dense)
 
     #has convolutional layer, add a reshape layer before the conv layer
@@ -359,6 +364,13 @@ class BAE_BaseClass():
         if self.decoder_cluster_enabled:
             self.kl_div_func = torch.nn.KLDivLoss()
 
+    @property
+    def latent_dim(self):
+        if self.model_type == "list":
+            return self.autoencoder[0].latent_dim
+        elif self.model_type == "stochastic":
+            return self.autoencoder.latent_dim
+
     def save_model_state(self, filename=None, folder_path="torch_model/"):
         create_dir(folder_path)
         if filename is None:
@@ -619,6 +631,10 @@ class BAE_BaseClass():
                 self.print_loss(epoch,self.losses[-1])
 
         else:
+            if y is None:
+                y = x
+            x,y = self.convert_tensor(x,y)
+
             for epoch in tqdm(range(num_epochs)):
                 loss = self.fit_one(x=x,y=y, mode=mode)
                 self.losses.append(loss)
@@ -766,11 +782,12 @@ class BAE_BaseClass():
         """
         Returns raw samples from each forward pass of the AE models
         """
-        original_shape = x.shape
-        x = self.convert_tensor(x)
-        y_preds = self._predict_samples(x,select_keys=select_keys)
 
+        x = self.convert_tensor(x)
+        original_shape = np.array(x.shape)
+        y_preds = self._predict_samples(x,select_keys=select_keys)
         y_preds = np.array(y_preds)
+
         try:
             y_preds = y_preds.reshape(self.num_samples,len(select_keys),*list(original_shape))
         except Exception as e:
@@ -786,7 +803,7 @@ class BAE_BaseClass():
             else:
                 return np.array([ae.decoder_cluster(x).detach().cpu().numpy() for ae in self.autoencoder])
 
-    def predict(self,x,exclude_keys=[]):
+    def predict(self,x,select_keys=[]):
         """
         Handles various data types including torch dataloader
 
@@ -794,11 +811,11 @@ class BAE_BaseClass():
 
         """
         if isinstance(x, torch.utils.data.dataloader.DataLoader):
-            return self.predict_dataloader(x,exclude_keys)
+            return self.predict_dataloader(x, select_keys)
         else: #numpy array or tensor
-            return self._predict(x,exclude_keys)
+            return self._predict(x, select_keys)
 
-    def _predict(self,x, exclude_keys : list =[]):
+    def _predict(self,x, select_keys : list =[]):
         """
         Computes mean and variances of the BAE model outputs
 
@@ -843,12 +860,12 @@ class BAE_BaseClass():
         waic_cbce = cbce_mean+cbce_var
 
         #filter out unnecessary outputs based on model settings of computing aleatoric uncertainty
-        if self.decoder_sigma_enabled == False:
-            exclude_keys = exclude_keys+["aleatoric","aleatoric_var", "nll_sigma_var", "nll_sigma_mean", "nll_sigma_waic"]
-        if self.homoscedestic_mode == "none":
-            exclude_keys = exclude_keys+["nll_homo_mean", "nll_homo_var", "nll_homo_waic"]
-        if self.homoscedestic_mode == "none" and self.decoder_sigma_enabled == False:
-            exclude_keys = exclude_keys+["total_unc"]
+        # if self.decoder_sigma_enabled == False:
+        #     exclude_keys = exclude_keys+["aleatoric","aleatoric_var", "nll_sigma_var", "nll_sigma_mean", "nll_sigma_waic"]
+        # if self.homoscedestic_mode == "none":
+        #     exclude_keys = exclude_keys+["nll_homo_mean", "nll_homo_var", "nll_homo_waic"]
+        # if self.homoscedestic_mode == "none" and self.decoder_sigma_enabled == False:
+        #     exclude_keys = exclude_keys+["total_unc"]
 
         return_dict= {"input":x,"mu":y_mu_mean, "epistemic":y_mu_var,
                 "aleatoric":y_sigma_mean,"aleatoric_var":y_sigma_var,
@@ -859,7 +876,7 @@ class BAE_BaseClass():
                 "nll_sigma_mean":nll_sigma_mean, "nll_sigma_var":nll_sigma_var, "nll_sigma_waic":waic_nll
                 }
 
-        return_dict = {filtered_key:value for filtered_key,value in return_dict.items() if filtered_key not in exclude_keys}
+        return_dict = {filtered_key:value for filtered_key,value in return_dict.items() if filtered_key in select_keys}
         return return_dict
 
     def bce_loss_np(self,y_pred,y_true):
@@ -919,6 +936,15 @@ class BAE_BaseClass():
         return self._calc_output_single(x, y_mu=y_mu, y_sigma=y_sigma, log_noise=log_noise, select_keys=select_keys)
 
     def _calc_output_single(self, x, y_mu, y_sigma, log_noise, select_keys=["y_mu","y_sigma","se","bce","cbce","nll_homo","nll_sigma"]):
+        if not isinstance(y_sigma, np.ndarray):
+            y_sigma = y_sigma.detach().cpu().numpy()
+        if not isinstance(x, np.ndarray):
+            x = x.detach().cpu().numpy()
+        if not isinstance(y_mu, np.ndarray):
+            y_mu = y_mu.detach().cpu().numpy()
+        if not isinstance(y_mu, np.ndarray):
+            log_noise = log_noise.detach().cpu().numpy()
+
         #return keys
         outputs = []
 
@@ -947,6 +973,8 @@ class BAE_BaseClass():
                 if self.decoder_full_cov_enabled:
                     nll_sigma = -self.loss_full_gaussian_np(x-y_mu,*y_sigma)
                 else:
+                    if isinstance(y_sigma, torch.Tensor):
+                        y_sigma = y_sigma.detach().cpu().numpy()
                     nll_sigma = -self.log_gaussian_loss_logsigma_np(y_mu,x,y_sigma)
                 outputs.append(nll_sigma)
         return tuple(outputs)
