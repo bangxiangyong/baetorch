@@ -200,7 +200,7 @@ def run_auto_lr_range_v2(train_loader, bae_model, mode="mu", sigma_train="separa
 
     #get number of iterations for a half cycle based on train loader
     total_iterations = len(train_loader)
-    half_iterations = int(total_iterations/2)
+    half_iterations = np.clip(int(total_iterations/2),1,np.inf)
 
     #save temporary model state
     #depending on chosen mechanism
@@ -310,7 +310,10 @@ def run_auto_lr_range_v2(train_loader, bae_model, mode="mu", sigma_train="separa
     minimum_loss_arg = negative_peaks[minimum_loss_arg]
     minimum_loss = gp_mean[minimum_loss_arg]
     maximum_lr = lr_list[minimum_loss_arg+(window_size-1)]
-    minimum_lr = lr_list[np.argwhere(gp_mean<=0.9)[0][0]+(window_size-1)]/2
+    if gp_mean.min() <=0.9:
+        minimum_lr = lr_list[np.argwhere(gp_mean<=0.9)[0][0]+(window_size-1)]/2
+    else:
+        minimum_lr = lr_list[np.argwhere(gp_mean==gp_mean.min())[0][0]+(window_size-1)]/2
 
     #round up to 3 significant figures
     maximum_lr = round_sig(maximum_lr,3)
