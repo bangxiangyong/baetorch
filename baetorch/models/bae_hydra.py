@@ -22,7 +22,7 @@ class Hydra_Autoencoder(Autoencoder):
     def __init__(self, encoder: torch.nn.Sequential, decoder_mu=None,
                  decoder_sig=None, decoder_cluster=None, homoscedestic_mode="none",
                  use_cuda=False, num_samples=5, cluster_architecture=[],
-                 num_clusters=3, num_cluster_samples=0):
+                 num_clusters=3, decoder_last_activation="none", num_cluster_samples=0):
 
         self.num_cluster_samples = num_cluster_samples
         if self.num_cluster_samples ==0:
@@ -34,7 +34,7 @@ class Hydra_Autoencoder(Autoencoder):
                                                 input_size=encoder.latent_dim,
                                                 output_size=num_clusters) for i in range(num_cluster_samples)]
         super(Hydra_Autoencoder, self).__init__(encoder,
-                                                decoder_mu=[infer_decoder(encoder, activation=encoder.activation, last_activation="none") for i in range(num_samples)],
+                                                decoder_mu=[infer_decoder(encoder, activation=encoder.activation, last_activation=decoder_last_activation) for i in range(num_samples)],
                                                 decoder_sig=[copy.deepcopy(decoder_sig) for i in range(num_samples)] if decoder_sig is not None else None,
                                                 homoscedestic_mode=homoscedestic_mode, use_cuda=use_cuda,
                                                 decoder_cluster=decoder_clusters
