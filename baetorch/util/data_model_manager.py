@@ -12,13 +12,19 @@ class DataModelManager:
         self.random_seed = random_seed
 
     def encode(self, datatype="model", return_pickle=True, return_compact=False, *args, **kwargs):
+        """
+
+        Parameters
+        ----------
+        return_compact : boolean
+            Returns a compact version of the encoded data which is formed from the first+last ten characters
+            of the encoded.
+
+        """
         if len(args) > 0:
             data_params = datatype + "_" + str(args) + str(kwargs)
         else:
             data_params = datatype + "_" + str(kwargs)
-        # encode_data_name = str(base64.b64encode(str(data_params).encode('ascii')))
-        # encode_data_name = str(self.cipher_suite.encrypt(str.encode(data_params)))
-        # encode_data_name = str(self.cipher_suite.encrypt(base64.b64encode(str(data_params).encode('ascii'))))
         encoded_message = hashlib.sha1(str.encode(data_params))
         encode_data_name = encoded_message.hexdigest()
         encode_data_name = encode_data_name.replace('b', '')
@@ -29,7 +35,7 @@ class DataModelManager:
         encode_data_name = list(encode_data_name)
         random.shuffle(encode_data_name)
         encode_data_name = ''.join(encode_data_name)
-        if return_compact:
+        if return_compact and len(encode_data_name)>=20:
             return encode_data_name[:10]+encode_data_name[-10:] + (".p" if return_pickle else "")
         else:
             return encode_data_name + (".p" if return_pickle else "")
@@ -88,11 +94,11 @@ class DataModelManager:
             return True
 
     def wrap(self, method, datatype="data", *args, **data_params):
-        if self.exist_model(datatype, **data_params):
+        if self.exist_model(method.__name__+datatype, **data_params):
             print("Data model existed, loading from pickle...")
-            x = self.load_model(datatype=datatype, **data_params)
+            x = self.load_model(datatype=method.__name__+datatype, **data_params)
         else:
             x = method(*args, **data_params)
             print("Saving data model...")
-            self.save_model(x, datatype=datatype, **data_params)
+            self.save_model(x, datatype=method.__name__+datatype, **data_params)
         return x
