@@ -4,6 +4,7 @@ import pandas as pd
 import pickle
 import random
 import hashlib
+import dill
 
 class DataModelManager:
     def __init__(self, lookup_table_file="data_model_table.csv", lookup_table_folder="data_models", random_seed=1000):
@@ -11,7 +12,7 @@ class DataModelManager:
         self.lookup_table_file = os.path.join(self.lookup_table_folder, lookup_table_file)
         self.random_seed = random_seed
 
-    def encode(self, datatype="model", return_pickle=True, return_compact=False, *args, **kwargs):
+    def encode(self, datatype="model", return_pickle=True, return_compact=False):
         """
 
         Parameters
@@ -21,10 +22,8 @@ class DataModelManager:
             of the encoded.
 
         """
-        if len(args) > 0:
-            data_params = datatype + "_" + str(args) + str(kwargs)
-        else:
-            data_params = datatype + "_" + str(kwargs)
+
+        data_params = datatype
         encoded_message = hashlib.sha1(str.encode(data_params))
         encode_data_name = encoded_message.hexdigest()
         encode_data_name = encode_data_name.replace('b', '')
@@ -40,9 +39,9 @@ class DataModelManager:
         else:
             return encode_data_name + (".p" if return_pickle else "")
 
-    def update_csv(self, datatype="model", **kwargs):
-        encode_data_name = self.encode(datatype, return_pickle=True, return_compact=False, **kwargs)
-        decode_data = datatype + str(kwargs)
+    def update_csv(self, datatype="model"):
+        encode_data_name = self.encode(datatype, return_pickle=True, return_compact=False)
+        decode_data = datatype
         if not os.path.exists(self.lookup_table_folder):
             os.mkdir(self.lookup_table_folder)
 
@@ -67,10 +66,9 @@ class DataModelManager:
         else:
             return pd.read_csv(self.lookup_table_file)
 
-    def get_pickle_name(self, datatype="model", **kwargs):
+    def get_pickle_name(self, datatype="model"):
         csv_df = self.load_csv()
-        encode_data_name = self.encode(datatype, return_pickle=True, return_compact=False,  **kwargs)
-
+        encode_data_name = self.encode(datatype, return_pickle=True, return_compact=False)
         try:
             pickled_file_name = csv_df.loc[csv_df['encoded'] == encode_data_name]['filename'].values[0]
             return pickled_file_name
@@ -78,27 +76,33 @@ class DataModelManager:
             print(e)
             return -1
 
-    def load_model(self, datatype="model", **kwargs):
-        return pickle.load(
-            open(os.path.join(self.lookup_table_folder, self.get_pickle_name(datatype, **kwargs)), mode="rb"))
+    def load_model(self, datatype="model"):
+        return dill.load(
+            open(os.path.join(self.lookup_table_folder, self.get_pickle_name(datatype)), mode="rb"))
 
-    def save_model(self, model, datatype="model", **kwargs):
-        self.update_csv(datatype, **kwargs)
-        pickle.dump(model,
-                    open(os.path.join(self.lookup_table_folder, self.get_pickle_name(datatype, **kwargs)), mode="wb"))
+    def load_encoded_model(self, encoded=""):
+        csv_df = self.load_csv()
+        pickled_file_name = csv_df.loc[csv_df['encoded'] == encoded]['filename'].values[0]
+        return dill.load(
+            open(os.path.join(self.lookup_table_folder, pickled_file_name), mode="rb"))
 
-    def exist_model(self, datatype="model", **kwargs):
-        if self.get_pickle_name(datatype, **kwargs) == -1:
+    def save_model(self, model, datatype="model"):
+        self.update_csv(datatype)
+        dill.dump(model,
+                    open(os.path.join(self.lookup_table_folder, self.get_pickle_name(datatype)), mode="wb"))
+
+    def exist_model(self, datatype="model"):
+        if self.get_pickle_name(datatype) == -1:
             return False
         else:
             return True
 
     def wrap(self, method, datatype="data", *args, **data_params):
-        if self.exist_model(method.__name__+datatype, **data_params):
+        if self.exist_model(method.__name__+datatype):
             print("Data model existed, loading from pickle...")
-            x = self.load_model(datatype=method.__name__+datatype, **data_params)
+            x = self.load_model(datatype=method.__name__+datatype)
         else:
             x = method(*args, **data_params)
             print("Saving data model...")
-            self.save_model(x, datatype=method.__name__+datatype, **data_params)
+            self.save_model(x, datatype=method.__name__+datatype)
         return x
