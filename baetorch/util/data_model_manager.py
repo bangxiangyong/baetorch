@@ -77,19 +77,21 @@ class DataModelManager:
             return -1
 
     def load_model(self, datatype="model"):
-        return dill.load(
-            open(os.path.join(self.lookup_table_folder, self.get_pickle_name(datatype)), mode="rb"))
+        print(self.lookup_table_folder)
+        print(self.get_pickle_name(datatype))
+        with open(os.path.join(self.lookup_table_folder, self.get_pickle_name(datatype)), mode="rb") as f:
+            return dill.load(f)
 
     def load_encoded_model(self, encoded=""):
         csv_df = self.load_csv()
         pickled_file_name = csv_df.loc[csv_df['encoded'] == encoded]['filename'].values[0]
-        return dill.load(
-            open(os.path.join(self.lookup_table_folder, pickled_file_name), mode="rb"))
+        with open(os.path.join(self.lookup_table_folder, pickled_file_name), mode="rb") as f:
+            return dill.load(f)
 
     def save_model(self, model, datatype="model"):
         self.update_csv(datatype)
-        dill.dump(model,
-                    open(os.path.join(self.lookup_table_folder, self.get_pickle_name(datatype)), mode="wb"))
+        with open(os.path.join(self.lookup_table_folder, self.get_pickle_name(datatype)), mode="wb") as f:
+            dill.dump(model, f)
 
     def exist_model(self, datatype="model"):
         if self.get_pickle_name(datatype) == -1:
