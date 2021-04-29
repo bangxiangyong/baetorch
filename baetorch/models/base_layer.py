@@ -5,11 +5,11 @@ import torch
 from torch.nn import Parameter
 import numpy as np
 
-from baetorch.baetorch.util.conv2d_util import calc_flatten_conv2d_forward_pass, \
+from ..util.conv2d_util import calc_flatten_conv2d_forward_pass, \
     calc_flatten_conv2dtranspose_forward_pass, calc_flatten_conv1d_forward_pass, \
     calc_flatten_conv1dtranspose_forward_pass, calc_required_padding, convert_tuple_conv2d_params
-from baetorch.baetorch.util.dense_util import parse_architecture_string
-from baetorch.baetorch.util.misc import parse_activation
+from ..util.dense_util import parse_architecture_string
+from ..util.misc import parse_activation
 
 
 class ConvLayers(torch.nn.Module):

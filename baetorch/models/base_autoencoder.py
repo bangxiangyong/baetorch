@@ -29,23 +29,21 @@
 #5. specify architecture for Conv2D (decoder)
 #since decoder and encoder are symmetrical, end-user probably just need to specify encoder architecture
 
-import torch
 import copy
-from torch.nn import Parameter
-import torch.nn.functional as F
 
-from baetorch.baetorch.models.base_layer import ConvLayers, Conv2DLayers, Conv1DLayers, DenseLayers, Reshape, Flatten, \
-    flatten_torch, flatten_np
-from baetorch.baetorch.models.cholesky_layer import CholLayer
-from ..util.dense_util import parse_architecture_string
-from ..util.misc import create_dir
 import numpy as np
-from ..util.conv2d_util import calc_required_padding, calc_flatten_conv2d_forward_pass, calc_flatten_conv2dtranspose_forward_pass, calc_flatten_conv1d_forward_pass, calc_flatten_conv1dtranspose_forward_pass, convert_tuple_conv2d_params
-from torch.autograd import Variable
-from tqdm import tqdm
+import torch
+import torch.nn.functional as F
 from sklearn.decomposition import PCA
-from ..util.misc import parse_activation
+from torch.autograd import Variable
+from torch.nn import Parameter
+from tqdm import tqdm
+
+from ..models.base_layer import ConvLayers, Conv2DLayers, Conv1DLayers, DenseLayers, Reshape, Flatten, \
+    flatten_torch, flatten_np
+from ..models.cholesky_layer import CholLayer
 from ..util.distributions import CB_Distribution, TruncatedGaussian
+from ..util.misc import create_dir
 
 
 def infer_decoder(encoder=[],latent_dim=None, last_activation="sigmoid", activation=None):

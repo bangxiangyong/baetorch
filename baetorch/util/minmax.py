@@ -1,6 +1,6 @@
 from sklearn.preprocessing import MinMaxScaler
 import numpy as np
-from baetorch.baetorch.models.base_layer import flatten_np
+from ..models.base_layer import flatten_np
 
 class MultiMinMaxScaler():
     def __init__(self, clip=True):

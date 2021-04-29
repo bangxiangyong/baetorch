@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 
-from baetorch.baetorch.models.base_layer import DenseLayers
+from ..models.base_layer import DenseLayers
 
 
 class CholLinear(torch.nn.Module):
