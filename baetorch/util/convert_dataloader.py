@@ -28,4 +28,5 @@ class SimpleDataset(Dataset):
         return x, y
 
 def convert_dataloader(x, y=None, batch_size=100, shuffle=False):
-    return DataLoader(SimpleDataset(x,y))
+    return DataLoader(SimpleDataset(x,y), batch_size=batch_size, shuffle=shuffle)
+    # return DataLoader(SimpleDataset(x,y))
