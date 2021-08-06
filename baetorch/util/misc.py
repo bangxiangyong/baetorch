@@ -1,31 +1,53 @@
+import time
+
 import torch
 import os
 import copy
 
+
 def create_dir(folder="plots"):
     if os.path.exists(folder) == False:
         os.mkdir(folder)
+
 
 def get_sample_dataloader(data_loader):
     dataiter = iter(data_loader)
     batch_data = dataiter.next()
     return batch_data[0], batch_data[1]
 
+
+def convert_int_to_list(int_param, num_replicate):
+    """
+    To handle integer passed as param, creates replicate of list
+    """
+    if isinstance(int_param, int):
+        return [int_param] * num_replicate
+    else:
+        return int_param
+
+
 def parse_activation(activation="relu"):
     if isinstance(activation, str):
-        if activation == 'sigmoid':
+        if activation == "sigmoid":
             activation = torch.nn.Sigmoid()
-        elif activation == 'tanh':
+        elif activation == "tanh":
             activation = torch.nn.Tanh()
-        elif activation == 'relu':
+        elif activation == "relu":
             activation = torch.nn.ReLU()
-        elif activation == 'leakyrelu':
+        elif activation == "leakyrelu":
             activation = torch.nn.LeakyReLU()
-        elif activation == 'none':
+        elif activation == "silu":
+            activation = torch.nn.SiLU()
+        elif activation == "selu":
+            activation = torch.nn.SELU()
+        elif activation == "softplus":
+            activation = torch.nn.Softplus()
+        elif activation == "none":
             activation = None
     else:
         activation = copy.deepcopy(activation)
     return activation
+
 
 class AddNoise(object):
     def __init__(self, noise_factor=0.05):
@@ -39,37 +61,50 @@ class AddNoise(object):
             Tensor: Converted image.
         """
         noisy_imgs = pic + self.noise_factor * torch.randn(*pic.shape)
-        noisy_imgs = torch.clamp(noisy_imgs, 0., 1.)
+        noisy_imgs = torch.clamp(noisy_imgs, 0.0, 1.0)
         return noisy_imgs
 
     def __repr__(self):
-        return self.__class__.__name__ + '()'
+        return self.__class__.__name__ + "()"
 
-def save_bae_model(model,folder="trained_models/"):
+
+def save_bae_model(model, folder="trained_models/"):
     create_dir(folder)
-    model_path = folder+model.model_name+".p"
+    model_path = folder + model.model_name + ".p"
     # pickle.dump(model, open(folder+model.model_name+".p", "wb"))
     model.set_cuda(False)
-    torch.save(model,model_path)
+    torch.save(model, model_path)
+
 
 def load_bae_model(model_name, folder="pickles/"):
-    #add '.p' to filename if not already
+    # add '.p' to filename if not already
     if ".p" not in model_name:
-        model_name = model_name+".p"
-    #add "/" to folder path, if not already
-    if folder[-1] != '/':
-        folder = folder+"/"
-    #load pickled model
+        model_name = model_name + ".p"
+    # add "/" to folder path, if not already
+    if folder[-1] != "/":
+        folder = folder + "/"
+    # load pickled model
     # bae_model = pickle.load( open(folder+model_name, "rb"))
-    model_path = folder+model_name
-    bae_model = torch.load(model_path,map_location=torch.device('cpu'))
+    model_path = folder + model_name
+    bae_model = torch.load(model_path, map_location=torch.device("cpu"))
     return bae_model
 
-def save_csv_pd(results_pd,folder="results",train_set_name="FashionMNIST",title="auroc"):
+
+def save_csv_pd(
+    results_pd, folder="results", train_set_name="FashionMNIST", title="auroc"
+):
     create_dir(folder)
-    save_path = folder+"/"+train_set_name+"_"+title+".csv"
+    save_path = folder + "/" + train_set_name + "_" + title + ".csv"
     csv_exists = os.path.exists(save_path)
-    csv_mode = 'a' if csv_exists else 'w'
+    csv_mode = "a" if csv_exists else "w"
     header_mode = False if csv_exists else True
     results_pd.to_csv(save_path, mode=csv_mode, header=header_mode, index=False)
 
+
+def time_method(func, *args, **func_params):
+    start = time.time()
+    res = func(*args, **func_params)
+    end = time.time()
+    time_taken = end - start
+    print("FIT TIME TAKEN: {:.5f}".format(time_taken))
+    return res, time_taken
