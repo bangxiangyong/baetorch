@@ -602,14 +602,13 @@ def run_auto_lr_range_v3(
 def run_auto_lr_range_v4(
     train_loader,
     bae_model,
-    mode="mu",
-    sigma_train="separate",
+    y=None,
     min_lr_range=0.0000001,
     max_lr_range=10,
     reset_params=False,
     plot=True,
     verbose=True,
-    save_mecha="copy",
+    save_mecha="file",
     run_full=False,
     savefile="",
     savefolder="plots",
@@ -669,9 +668,9 @@ def run_auto_lr_range_v4(
 
             # handle pre scaling
             if bae_model.scaler_enabled:
-                loss = bae_model.fit_one(x=bae_model.scaler.transform(data))
+                loss = bae_model.fit_one(x=bae_model.scaler.transform(data), y=y)
             else:
-                loss = bae_model.fit_one(x=data)
+                loss = bae_model.fit_one(x=data, y=y)
             loss_list.append(loss)
             if (current_index + 1) >= window_size:
                 # first time, fill up with mean

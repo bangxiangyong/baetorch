@@ -33,7 +33,7 @@ import copy
 import numpy as np
 import torch
 from sklearn.preprocessing import MinMaxScaler
-from torch.nn import Parameter
+from torch.nn import Parameter, GaussianNLLLoss
 
 # from .sparse_ae import SparseAutoencoderModule
 from ..models_v2.base_layer import (
@@ -53,7 +53,7 @@ from sklearn.decomposition import PCA
 from torch.autograd import Variable
 from torch.nn import Parameter
 from tqdm import tqdm
-from piqa import SSIM, MS_SSIM
+from piqa import SSIM, MS_SSIM, HaarPSI, MDSI, PSNR
 from ..models.base_layer import (
     ConvLayers,
     Conv2DLayers,
@@ -68,6 +68,7 @@ from ..models.cholesky_layer import CholLayer
 from ..util.distributions import CB_Distribution, TruncatedGaussian
 from ..util.minmax import TorchMinMaxScaler
 from ..util.misc import create_dir
+from ..util.seed import bae_set_seed
 from ..util.sghmc import SGHMC
 from ..util.truncated_gaussian import TruncatedNormal
 
@@ -98,6 +99,7 @@ class AutoencoderModule(torch.nn.Module):
 
         # specify encoder params
         self.enc_params = copy.deepcopy(chain_params)
+        self.enc_params[-1].update({"last_norm": self.enc_params[-1]["norm"]})
 
         # determine whether conv-linear architecture is used
         if (
@@ -332,9 +334,9 @@ class BAE_BaseClass:
         self,
         chain_params=[],
         last_activation="sigmoid",
-        last_norm=True,
+        last_norm=None,
         twin_output=False,
-        twin_params={"activation": "none", "norm": False},
+        twin_params={"activation": "none", "norm": "none"},
         use_cuda=False,
         skip=False,
         homoscedestic_mode="none",
@@ -352,6 +354,7 @@ class BAE_BaseClass:
         scaler=TorchMinMaxScaler,
         scaler_enabled=False,
         sparse_scale=0,
+        stochastic_seed=-1,
         **ae_params,
     ):
         # save kwargs
@@ -378,6 +381,7 @@ class BAE_BaseClass:
         self.chain_params = chain_params
         self.sparse_scale = sparse_scale
         self.activ_loss = False
+        self.stochastic_seed = stochastic_seed
 
         # check if forwarding model includes activation loss
         if self.sparse_scale > 0:
@@ -410,18 +414,24 @@ class BAE_BaseClass:
             self.scaler = scaler()
 
         # init anchored weights prior
-        if self.anchored and self.weight_decay > 0:
-            # handle ensemble type of model
-            if self.model_type == "list":
-                for autoencoder in self.autoencoder:
-                    self.init_anchored_weight(autoencoder)
-            else:
-                self.init_anchored_weight(self.autoencoder)
+        self.init_anchored_weight()
 
         # init ssim
         if self.likelihood == "ssim":
+            # self.ssim = (
+            #     SSIM(reduction="none").cuda() if use_cuda else SSIM(reduction="none")
+            # )
             self.ssim = (
-                SSIM(reduction="none").cuda() if use_cuda else SSIM(reduction="none")
+                torch.nn.CosineSimilarity(dim=1, eps=1e-6).cuda()
+                if use_cuda
+                else torch.nn.CosineSimilarity(dim=1, eps=1e-6)
+            )
+
+        elif self.likelihood == "gaussian":
+            self.gauss_loss = (
+                torch.nn.GaussianNLLLoss(reduction="none").cuda()
+                if use_cuda
+                else torch.nn.GaussianNLLLoss(reduction="none")
             )
 
     def init_autoencoder_module(self, AE_Module, *args, **params):
@@ -439,7 +449,7 @@ class BAE_BaseClass:
         if self.scheduler_enabled:
             self.init_scheduler()
 
-    def fit(self, x, y=None, num_epochs=5):
+    def fit(self, x, y=None, num_epochs=5, **fit_kwargs):
         # initialise optimisers and scheduler (if applicable)
         self.init_fit()
 
@@ -459,9 +469,11 @@ class BAE_BaseClass:
                     else:
                         # handle scaler
                         if self.scaler_enabled:
-                            loss = self.fit_one(x=self.scaler.transform(data), y=y)
+                            loss = self.fit_one(
+                                x=self.scaler.transform(data), y=y, **fit_kwargs
+                            )
                         else:
-                            loss = self.fit_one(x=data, y=y)
+                            loss = self.fit_one(x=data, y=y, **fit_kwargs)
                     temp_loss.append(loss)
                     self.losses.append(np.mean(temp_loss))  # indent?
                 self.print_loss(epoch, self.losses[-1])
@@ -477,7 +489,7 @@ class BAE_BaseClass:
 
             # start running through loop
             for epoch in tqdm(range(num_epochs)):
-                loss = self.fit_one(x=x, y=y)
+                loss = self.fit_one(x=x, y=y, **fit_kwargs)
                 self.losses.append(loss)
                 self.print_loss(epoch, self.losses[-1])
 
@@ -487,8 +499,158 @@ class BAE_BaseClass:
 
         return self
 
+    def fit_one(self, x, y=None, y_scaler=0.01):
+        """
+        Template for vanilla fitting, developers are very likely to override this to provide custom fitting functions.
+        """
+        # extract input and output size from data
+        # and convert into tensor, if not already
+        x, y = self.convert_tensor(x, y)
+
+        # train for n epochs
+        # loss = self.criterion(autoencoder=self.autoencoder, x=x, y=y)
+
+        # EXPERIMENTAL
+        if y is None:
+            loss = self.criterion(autoencoder=self.autoencoder, x=x, y=y)
+        else:  # semi-supervised learning
+            # loss = (
+            #     self.criterion(autoencoder=self.autoencoder, x=x, y=None)
+            #     - self.criterion(autoencoder=self.autoencoder, x=y, y=None) * y_scaler
+            # )
+            loss = self.criterion(autoencoder=self.autoencoder, x=x, y=y)
+
+        # backpropagate
+        self.zero_optimisers()
+        loss.backward()
+        self.step_optimisers()
+
+        # if scheduler is enabled, update it
+        if self.scheduler_enabled:
+            self.step_scheduler()
+
+        if self.use_cuda:
+            x.cpu()
+            if y is not None:
+                y.cpu()
+        return loss.item()
+
+    def criterion(self, autoencoder, x, y=None):
+        """
+        Override this if necessary.
+        This computes the combined loss to be optimised.
+        Prior and Likelihood losses are to be computed here.
+        """
+        # EXPERIMENTAL : SEMI SUPERVISED
+        if y is not None:
+
+            # z = torch.row_stack([x, y])
+            # ae_outputs = autoencoder(z)
+            # y_pred_mu, y_pred_sig, activ_loss_ = self.unpack_ae_outputs(
+            #     ae_outputs, autoencoder.log_noise
+            # )
+            #
+            # nll_ = self.log_likelihood_loss(
+            #     y_pred_mu, z, y_pred_sig, return_mean=False
+            # ).mean(-1)
+            #
+            # ood_nll = nll_[len(x) :]
+            # id_nll = nll_[: len(x)]
+
+            # working code::
+            ae_outputs = autoencoder(x)
+            y_pred_mu, y_pred_sig, activ_loss_ = self.unpack_ae_outputs(
+                ae_outputs, autoencoder.log_noise
+            )
+            id_nll = self.log_likelihood_loss(
+                y_pred_mu, x, y_pred_sig, return_mean=False
+            ).mean(-1)
+
+            # # get second prediction
+            ae_outputs2 = autoencoder(y)
+
+            # unpack AE outputs due to AE's nature of multiple outputs
+            y_pred_mu_2, y_pred_sig_2, activ_loss_2 = self.unpack_ae_outputs(
+                ae_outputs2, autoencoder.log_noise
+            )
+
+            ood_nll = self.log_likelihood_loss(
+                y_pred_mu_2, y, y_pred_sig_2, return_mean=False
+            ).mean(-1)
+
+            # classification
+            class_loss = F.binary_cross_entropy_with_logits(
+                id_nll, torch.zeros_like(id_nll), reduction="mean"
+            ) + F.binary_cross_entropy_with_logits(
+                ood_nll, torch.ones_like(ood_nll), reduction="mean"
+            )
+
+            # nll = id_nll.mean() - ood_nll.mean() * 0.1 + class_loss
+
+            # nll = id_nll.mean() - ood_nll.mean()
+            nll = id_nll.mean() + class_loss
+            # nll = id_nll.mean()
+
+            # nll = nll.mean() + class_loss
+            # nll = nll.mean()
+            # nll = nll.mean() - semi_nll.mean()
+
+        else:
+            # get AE forwards
+            ae_outputs = autoencoder(x)
+
+            # unpack AE outputs due to AE's nature of multiple outputs
+            y_pred_mu, y_pred_sig, activ_loss_ = self.unpack_ae_outputs(
+                ae_outputs, autoencoder.log_noise
+            )
+
+            nll = self.log_likelihood_loss(y_pred_mu, x, y_pred_sig, return_mean=True)
+
+        # check if activation loss is needed
+        if self.activ_loss and self.sparse_scale > 0:
+            nll = nll + activ_loss_ * self.sparse_scale
+
+        # prior loss
+        if self.weight_decay > 0:
+            prior_loss = self.log_prior_loss(model=autoencoder)
+            return nll + prior_loss
+        else:
+            return nll
+
+    # def criterion(self, autoencoder, x, y=None):
+    #     """
+    #     Override this if necessary.
+    #     This computes the combined loss to be optimised.
+    #     Prior and Likelihood losses are to be computed here.
+    #     """
+    #     # get AE forwards
+    #     ae_outputs = autoencoder(x)
+    #
+    #     # unpack AE outputs due to AE's nature of multiple outputs
+    #     y_pred_mu, y_pred_sig, activ_loss_ = self.unpack_ae_outputs(
+    #         ae_outputs, autoencoder.log_noise
+    #     )
+    #
+    #     # likelihood loss
+    #     nll = self.log_likelihood_loss(y_pred_mu, x, y_pred_sig, return_mean=True)
+    #
+    #     # check if activation loss is needed
+    #     if self.activ_loss and self.sparse_scale > 0:
+    #         nll = nll + activ_loss_ * self.sparse_scale
+    #
+    #     # prior loss
+    #     if self.weight_decay > 0:
+    #         prior_loss = self.log_prior_loss(model=autoencoder)
+    #         return nll + prior_loss
+    #     else:
+    #         return nll
+
     def predict_one(
-        self, x, y=None, select_keys=["y_mu", "y_sigma", "se", "nll"], autoencoder_=None
+        self,
+        x,
+        y=None,
+        select_keys=["y_mu", "y_sigma", "se", "bce", "nll"],
+        autoencoder_=None,
     ):
         """
         Predict once on a batch of data
@@ -590,102 +752,54 @@ class BAE_BaseClass:
             return self.predict_one(x, *args, **kwargs)
 
     def predict(
-        self, x, y=None, select_keys=["y_mu", "y_sigma", "se", "nll"], autoencoder_=None
+        self,
+        x,
+        y=None,
+        select_keys=["y_mu", "y_sigma", "se", "bce", "nll"],
+        autoencoder_=None,
     ):
         """
         Actual predict function exposed to user. User should be exposed to use only this predict function.
         """
-
-        # predict based on model types
-        if self.model_type == "deterministic":
-            return self.predict_(
-                x=x, y=y, select_keys=select_keys, autoencoder_=autoencoder_
-            )
-
-        elif self.model_type == "stochastic":
-            # get individual stochastic forward predictions
-            predictions = [
-                self.predict_(
-                    x=x,
-                    y=y,
-                    select_keys=select_keys,
-                    autoencoder_=self.autoencoder,
+        with torch.no_grad():
+            # predict based on model types
+            if self.model_type == "deterministic":
+                return self.predict_(
+                    x=x, y=y, select_keys=select_keys, autoencoder_=autoencoder_
                 )
-                for i in range(self.num_samples)
-            ]
 
-            # stack them
-            return self.concat_predictions(predictions)
+            elif self.model_type == "stochastic":
+                if self.stochastic_seed != -1:
+                    bae_set_seed(self.stochastic_seed)
 
-        elif self.model_type == "list":
-            # get individual forward predictions from list of autoencoders
-            predictions = [
-                self.predict_(
-                    x=x,
-                    y=y,
-                    select_keys=select_keys,
-                    autoencoder_=autoencoder,
-                )
-                for autoencoder in self.autoencoder
-            ]
+                # get individual stochastic forward predictions
+                predictions = [
+                    self.predict_(
+                        x=x,
+                        y=y,
+                        select_keys=select_keys,
+                        autoencoder_=self.autoencoder,
+                    )
+                    for i in range(self.num_samples)
+                ]
 
-            # stack them
-            return self.concat_predictions(predictions)
+                # stack them
+                return self.concat_predictions(predictions)
 
-    def fit_one(self, x, y=None):
-        """
-        Template for vanilla fitting, developers are very likely to override this to provide custom fitting functions.
-        """
-        # extract input and output size from data
-        # and convert into tensor, if not already
-        if y is None:
-            y = x
-        x, y = self.convert_tensor(x, y)
+            elif self.model_type == "list":
+                # get individual forward predictions from list of autoencoders
+                predictions = [
+                    self.predict_(
+                        x=x,
+                        y=y,
+                        select_keys=select_keys,
+                        autoencoder_=autoencoder,
+                    )
+                    for autoencoder in self.autoencoder
+                ]
 
-        # train for n epochs
-        loss = self.criterion(autoencoder=self.autoencoder, x=x, y=y)
-
-        # backpropagate
-        self.zero_optimisers()
-        loss.backward()
-        self.step_optimisers()
-
-        # if scheduler is enabled, update it
-        if self.scheduler_enabled:
-            self.step_scheduler()
-
-        if self.use_cuda:
-            x.cpu()
-            y.cpu()
-        return loss.item()
-
-    def criterion(self, autoencoder, x, y=None):
-        """
-        Override this if necessary.
-        This computes the combined loss to be optimised.
-        Prior and Likelihood losses are to be computed here.
-        """
-        # get AE forwards
-        ae_outputs = autoencoder(x)
-
-        # unpack AE outputs due to AE's nature of multiple outputs
-        y_pred_mu, y_pred_sig, activ_loss_ = self.unpack_ae_outputs(
-            ae_outputs, autoencoder.log_noise
-        )
-
-        # likelihood loss
-        nll = self.log_likelihood_loss(y_pred_mu, x, y_pred_sig, return_mean=True)
-
-        # check if activation loss is needed
-        if self.activ_loss and self.sparse_scale > 0:
-            nll = nll + activ_loss_ * self.sparse_scale
-
-        # prior loss
-        if self.weight_decay > 0:
-            prior_loss = self.log_prior_loss(model=autoencoder)
-            return nll + prior_loss
-        else:
-            return nll
+                # stack them
+                return self.concat_predictions(predictions)
 
     def log_prior_loss(self, model):
         # check if anchored prior is used
@@ -705,9 +819,22 @@ class BAE_BaseClass:
 
         return prior_loss
 
-    def init_anchored_weight(self, model):
+    def init_anchored_weight(self):
         """
-        Initialise anchored weights for Bayesian ensembling.
+        Wrapper to initialise anchored weights for Bayesian ensembling.
+        """
+        # init anchored weights prior
+        if self.anchored and self.weight_decay > 0:
+            # handle ensemble type of model
+            if self.model_type == "list":
+                for autoencoder in self.autoencoder:
+                    self.init_anchored_weight_(autoencoder)
+            else:
+                self.init_anchored_weight_(self.autoencoder)
+
+    def init_anchored_weight_(self, model):
+        """
+        Internal method to actually init the anchored weights.
         """
         model_weights = torch.cat(
             [parameter.flatten() for parameter in model.parameters()]
@@ -794,6 +921,17 @@ class BAE_BaseClass:
         )
 
         return log_likelihood
+
+    # def log_gaussian_loss_logsigma_torch(self, y_pred, y_true, log_sigma):
+    #
+    #     return self.gauss_loss(y_pred, y_true, torch.nn.functional.softplus(log_sigma))
+
+    # def log_gaussian_loss_logsigma_torch(self, y_pred, y_true, log_sigma):
+    #     log_likelihood = (((y_true - y_pred) ** 2) * torch.exp(-log_sigma) * 0.5) + (
+    #         0.5 * log_sigma
+    #     )
+    #
+    #     return log_likelihood
 
     def log_cbernoulli_loss_torch(self, y_pred_mu, y_true):
         if hasattr(self, "cb") == False:
@@ -948,6 +1086,49 @@ class BAE_BaseClass:
             for key in select_keys
         }
         return stacked_predictions
+
+    def save_model_state(self, filename=None, folder_path="torch_model/"):
+        create_dir(folder_path)
+        if filename is None:
+            temp = True
+        if self.model_type == "list":
+            for model_i, autoencoder in enumerate(self.autoencoder):
+                if temp:
+                    torch_filename = self.model_name + "_" + str(model_i) + ".pt"
+                    torch_filename = "temp_" + torch_filename
+                else:
+                    torch_filename = temp
+                torch.save(autoencoder.state_dict(), folder_path + torch_filename)
+
+        else:  # stochastic model
+            if temp:
+                torch_filename = self.model_name + ".pt"
+                torch_filename = "temp_" + torch_filename
+            else:
+                torch_filename = temp
+            torch.save(self.autoencoder.state_dict(), folder_path + torch_filename)
+
+    def load_model_state(self, filename=None, folder_path="torch_model/"):
+        create_dir(folder_path)
+        if filename is None:
+            temp = True
+        if self.model_type == "list":
+            for model_i, autoencoder in enumerate(self.autoencoder):
+                if temp:
+                    torch_filename = self.model_name + "_" + str(model_i) + ".pt"
+                    torch_filename = "temp_" + torch_filename
+                else:
+                    torch_filename = temp
+                self.autoencoder[model_i].load_state_dict(
+                    torch.load(folder_path + torch_filename)
+                )
+        else:  # stochastic model
+            if temp:
+                torch_filename = self.model_name + ".pt"
+                torch_filename = "temp_" + torch_filename
+            else:
+                torch_filename = temp
+            self.autoencoder.load_state_dict(torch.load(folder_path + torch_filename))
 
 
 class SparseAutoencoderModule(AutoencoderModule):

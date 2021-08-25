@@ -2,6 +2,7 @@
 import copy
 
 import torch
+from fastai.layers import PooledSelfAttention2d, SelfAttention, SimpleSelfAttention
 from torch.nn import Parameter
 import numpy as np
 
@@ -67,13 +68,15 @@ def create_block(
     base="conv2d",
     order=["base", "norm", "activation"],
     activation="leakyrelu",
-    norm=True,
+    norm: str = "none",
     transpose=False,
     bias=False,
     dropout=0,
     create_base_layer_func=create_base_layer,
     torch_wrapper=torch.nn.Sequential,
     se_block=False,
+    self_att=False,
+    self_att_transpose_only=False,
     **base_params,
 ):
     """
@@ -105,24 +108,67 @@ def create_block(
             norm_after_base = True
         batch_norm_size = output_size if norm_after_base else input_size
 
-        if base == "conv2d":
-            norm_layer = torch.nn.BatchNorm2d(batch_norm_size)
-        if base == "conv1d":
-            norm_layer = torch.nn.BatchNorm1d(batch_norm_size)
-        if base == "linear":
-            norm_layer = torch.nn.BatchNorm1d(batch_norm_size)
+        # handle exact type of norm layer
+        # either batch / layer/ or instance norm
+        if norm == "batch":
+            bn_momentum = 0.01
+            track_running_stats = False
+            if base == "conv2d":
+                norm_layer = torch.nn.BatchNorm2d(
+                    batch_norm_size,
+                    momentum=bn_momentum,
+                    track_running_stats=track_running_stats,
+                )
+            if base == "conv1d":
+                norm_layer = torch.nn.BatchNorm1d(
+                    batch_norm_size,
+                    momentum=bn_momentum,
+                    track_running_stats=track_running_stats,
+                )
+            if base == "linear":
+                norm_layer = torch.nn.BatchNorm1d(
+                    batch_norm_size,
+                    momentum=bn_momentum,
+                    track_running_stats=track_running_stats,
+                )
+
+        elif norm == "instance":
+            norm_layer = torch.nn.GroupNorm(
+                batch_norm_size, batch_norm_size
+            )  # Instance Norm
+
+        elif norm == "layer":
+            norm_layer = torch.nn.GroupNorm(1, batch_norm_size)  # Layer Norm
+
+        elif norm == "weight":
+            base_layer = torch.nn.utils.weight_norm(base_layer)
+
+    # set default norm
+    else:
+        norm = "none"
 
     # start appending actual layers into the block based on given order
     # returns a torch sequential of the layers
     block = []
+
     for layer_type in order:
         if layer_type == "base":
+            if input_size > 3 and self_att:
+                if self_att_transpose_only and transpose:
+                    block.append(SelfAttention(input_size))
+                elif not self_att_transpose_only:
+                    block.append(SelfAttention(input_size))
+
             block.append(base_layer)
+
         elif layer_type == "activation":
             activation_layer = parse_activation(activation=activation)
             if activation_layer is not None:
                 block.append(activation_layer)
-        elif layer_type == "norm" and norm:
+
+        # ignore adding norm layer if it is "weight" or "none"
+        # since weight layer is a wrapper to the base layer
+        elif layer_type == "norm" and norm != "weight" and norm != "none":
             block.append(norm_layer)
 
     # handle adding dropout
@@ -133,7 +179,7 @@ def create_block(
             block.append(torch.nn.Dropout(dropout))
 
     if se_block and base == "conv2d":
-        block.append(SE_Block(output_size, r=8))
+        block.append(SE_Block(output_size, r=16))
 
     return torch_wrapper(*block)
 
@@ -144,7 +190,7 @@ def create_twin_block(
     base="conv2d",
     order=["base", "norm", "activation"],
     activation="leakyrelu",
-    norm=True,
+    norm: str = "none",
     transpose=False,
     bias=False,
     twin_params={},
@@ -195,10 +241,10 @@ def create_conv_chain(
     base="conv2d",
     order=["base", "norm", "activation"],
     activation="leakyrelu",
-    norm=True,
+    norm="none",
     bias=False,
     last_activation=None,
-    last_norm=True,
+    last_norm=None,
     transpose=False,
     twin_output=False,
     twin_params={},
@@ -217,6 +263,8 @@ def create_conv_chain(
     # ====House Keeping===
     if last_activation is None:
         last_activation = activation
+    if last_norm is None:
+        last_norm = norm
 
     conv_dim = 2 if base == "conv2d" else 1
 
@@ -297,8 +345,8 @@ def create_conv_chain(
                         stride=conv_stride_[channel_id],
                         padding=conv_padding_[channel_id],
                         dropout=last_dropout,
-                        # *block_args,
-                        # **block_kwargs,
+                        *block_args,
+                        **block_kwargs,
                     )
                 )
             else:  # twin output
@@ -318,8 +366,8 @@ def create_conv_chain(
                         twin_params=twin_params,
                         dropout=last_dropout,
                         create_block_func=create_block_func,
-                        # *block_args,
-                        # **block_kwargs,
+                        *block_args,
+                        **block_kwargs,
                     )
                 )
     return chain
@@ -335,10 +383,10 @@ def create_linear_chain(
     architecture=[],
     order=["base", "norm", "activation"],
     activation="leakyrelu",
-    norm=True,
+    norm="none",
     bias=False,
     last_activation=None,
-    last_norm=True,
+    last_norm=None,
     transpose=False,
     twin_output=False,
     twin_params={},
@@ -354,6 +402,8 @@ def create_linear_chain(
     """
     if last_activation is None:
         last_activation = activation
+    if last_norm is None:
+        last_norm = norm
 
     architecture_ = copy.copy(architecture)
     if transpose:
@@ -581,10 +631,10 @@ class ConvLayers(torch.nn.Module):
 
                 # handle batch norm
                 if norm and channel_id != (len(self.conv_architecture) - 2):
-                    layer_list.append(torch.nn.BatchNorm2d(out_channels))
+                    layer_list.append(torch.nn.BatchNorm2d(out_channels, momentum=0.01))
 
                 elif last_norm and channel_id == (len(self.conv_architecture) - 2):
-                    layer_list.append(torch.nn.BatchNorm2d(out_channels))
+                    layer_list.append(torch.nn.BatchNorm2d(out_channels, momentum=0.01))
 
                 # handle activation
                 if activation is not None:

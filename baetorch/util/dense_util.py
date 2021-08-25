@@ -90,8 +90,8 @@ def parse_architecture_string(
             if layer_index == 0:
                 first_layer = layer_type(input_size, num_nodes, bias=bias)
                 layers.append(first_layer)
-                if norm:
-                    layers.append(torch.nn.BatchNorm1d(num_features=num_nodes))
+                # if norm:
+                #     layers.append(torch.nn.BatchNorm1d(num_features=num_nodes))
 
                 layers = append_activation(layers, activation)
 
@@ -115,12 +115,12 @@ def parse_architecture_string(
                 )
                 last_layer = layer_type(num_nodes, output_size, bias=bias)
                 layers.append(new_layer)
-                if norm:
-                    layers.append(torch.nn.BatchNorm1d(num_features=num_nodes))
+                # if norm:
+                #     layers.append(torch.nn.BatchNorm1d(num_features=num_nodes))
                 layers = append_activation(layers, activation)
                 layers.append(last_layer)
-                if last_norm:
-                    layers.append(torch.nn.BatchNorm1d(num_features=output_size))
+                # if last_norm:
+                #     layers.append(torch.nn.BatchNorm1d(num_features=output_size))
                 layers = append_activation(layers, last_activation)
             else:
                 new_layer = layer_type(
@@ -129,8 +129,8 @@ def parse_architecture_string(
                     bias=bias,
                 )
                 layers.append(new_layer)
-                if norm:
-                    layers.append(torch.nn.BatchNorm1d(num_features=num_nodes))
+                # if norm:
+                #     layers.append(torch.nn.BatchNorm1d(num_features=num_nodes))
                 layers = append_activation(layers, activation)
 
     return layers

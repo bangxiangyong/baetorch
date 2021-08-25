@@ -59,37 +59,15 @@ class BAE_SGHMC(BAE_BaseClass):
                 optimiser_list,
                 lr=self.base_learning_rate,
                 num_burn_in_steps=10,
-                # scale_grad=0.0000001,
                 scale_grad=0.0001,
-                # scale_grad=0.01,
-                # noise=5,
-                # scale_grad=0.1,
             )
 
     def init_fit(self):
         # init optimisers and scheduler for fitting model
-        # if len(self.optimisers) == 0 or self.burn_stage:
         if not self.continous_fit:
             self.set_optimisers()
-        # else:
-        #     self.load_optimisers_state()
         if self.scheduler_enabled and self.burn_stage:
             self.init_scheduler()
-
-    # def fit(self, x, y=None, burn_epoch=100, sghmc_epoch=200, save_every=5):
-    #     if burn_epoch > 0:
-    #         self.burn_stage = True
-    #         super(BAE_SGHMC, self).fit(x, y=None, num_epochs=burn_epoch)
-    #         self.save_sghmc_parameters()
-    #
-    #     if sghmc_epoch > 0:
-    #         self.burn_stage = False
-    #         self.scheduler_enabled = False
-    #         for i in range(sghmc_epoch // save_every):
-    #             self.continous_fit = False if i == 0 else True
-    #             super(BAE_SGHMC, self).fit(x, y=None, num_epochs=save_every)
-    #             self.save_sghmc_parameters()
-    #         self.continous_fit = False
 
     def fit(
         self,
@@ -97,7 +75,8 @@ class BAE_SGHMC(BAE_BaseClass):
         y=None,
         burn_epoch=100,
         sghmc_epoch=200,
-        clear_sghmc_params=False,
+        clear_sghmc_params=True,
+        **fit_kwargs
     ):
         """
         There are two phases - one of burn-in and second of sampling .
@@ -110,7 +89,7 @@ class BAE_SGHMC(BAE_BaseClass):
 
         if burn_epoch > 0:
             self.burn_stage = True
-            super(BAE_SGHMC, self).fit(x, y=None, num_epochs=burn_epoch)
+            super(BAE_SGHMC, self).fit(x, y=y, num_epochs=burn_epoch, **fit_kwargs)
             self.save_sghmc_parameters()
 
         if sghmc_epoch > 0:
@@ -127,8 +106,7 @@ class BAE_SGHMC(BAE_BaseClass):
             for i in range(sghmc_epoch):
                 self.continous_fit = False if i == 0 else True
 
-                super(BAE_SGHMC, self).fit(x, y=None, num_epochs=1)
-                # self.save_sghmc_parameters()
+                super(BAE_SGHMC, self).fit(x, y=y, num_epochs=1, **fit_kwargs)
             self.continous_fit = False
             self.save_every_counter = 0
 
@@ -151,7 +129,12 @@ class BAE_SGHMC(BAE_BaseClass):
         self.sghmc_params.append(copy.deepcopy(self.autoencoder.state_dict()))
 
     def predict(
-        self, x, y=None, select_keys=["y_mu", "y_sigma", "se", "nll"], *args, **params
+        self,
+        x,
+        y=None,
+        select_keys=["y_mu", "y_sigma", "se", "bce", "nll"],
+        *args,
+        **params
     ):
 
         # get individual forward predictions

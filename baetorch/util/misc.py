@@ -42,6 +42,8 @@ def parse_activation(activation="relu"):
             activation = torch.nn.SELU()
         elif activation == "softplus":
             activation = torch.nn.Softplus()
+        elif activation == "gelu":
+            activation = torch.nn.GELU()
         elif activation == "none":
             activation = None
     else:
@@ -72,7 +74,7 @@ def save_bae_model(model, folder="trained_models/"):
     create_dir(folder)
     model_path = folder + model.model_name + ".p"
     # pickle.dump(model, open(folder+model.model_name+".p", "wb"))
-    model.set_cuda(False)
+    # model.set_cuda(False)
     torch.save(model, model_path)
 
 

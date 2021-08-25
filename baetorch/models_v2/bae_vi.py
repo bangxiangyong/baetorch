@@ -98,7 +98,7 @@ class VI_AutoencoderModule(AutoencoderModule):
         self.create_chain_func = {
             "linear": create_vlinear_chain,
             "conv2d": create_vconv_chain,
-            "conv1d": create_conv_chain,
+            "conv1d": create_vconv_chain,
         }
 
 
@@ -131,7 +131,7 @@ def create_variational_layer(
             )
     elif base == "conv1d":
         if transpose:
-            base_layer = VariationalConv2DTranspose(
+            base_layer = VariationalConv1DTranspose(
                 in_channels=input_size,
                 out_channels=output_size,
                 bias=bias,

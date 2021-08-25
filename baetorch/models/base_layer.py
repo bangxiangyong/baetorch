@@ -137,11 +137,11 @@ class ConvLayers(torch.nn.Module):
                     ]
 
                 # handle batch norm
-                if norm and channel_id != (len(self.conv_architecture) - 2):
-                    layer_list.append(torch.nn.BatchNorm2d(out_channels))
-
-                elif last_norm and channel_id == (len(self.conv_architecture) - 2):
-                    layer_list.append(torch.nn.BatchNorm2d(out_channels))
+                # if norm and channel_id != (len(self.conv_architecture) - 2):
+                #     layer_list.append(torch.nn.BatchNorm2d(out_channels))
+                #
+                # elif last_norm and channel_id == (len(self.conv_architecture) - 2):
+                #     layer_list.append(torch.nn.BatchNorm2d(out_channels))
 
                 # handle activation
                 if activation is not None:
