@@ -1,12 +1,11 @@
 ###TORCH BASE MODULES###
 import copy
 
-import torch
-from fastai.layers import PooledSelfAttention2d, SelfAttention, SimpleSelfAttention
-from torch.nn import Parameter
 import numpy as np
+import torch
+from fastai.layers import SelfAttention
+from torch.nn import Parameter
 
-from ..util.batchensemble import Ensemble_FC
 from ..util.conv2d_util import (
     calc_flatten_conv2d_forward_pass,
     calc_flatten_conv2dtranspose_forward_pass,
@@ -15,8 +14,7 @@ from ..util.conv2d_util import (
     calc_required_padding,
     convert_tuple_conv2d_params,
 )
-from ..util.dense_util import parse_architecture_string, parse_architecture_string_v2
-from ..util.maskensemble import Masksembles1D
+from ..util.dense_util import parse_architecture_string_v2
 from ..util.misc import parse_activation
 
 
