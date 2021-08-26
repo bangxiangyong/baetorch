@@ -483,7 +483,6 @@ def evaluate_retained_unc(
     # prepare the loop
     auroc_retained_list = []
     f1_score_retained_list = []
-    mcc_score_retained_list = []
     gss_score_retained_list = []
     auprc_retained_list = []
     avgprc_retained_list = []
@@ -531,16 +530,12 @@ def evaluate_retained_unc(
                     retained_id_outprob_mean, retained_ood_outprob_mean
                 )
                 f1_score_retained = f1_score(retained_y_true, retained_hard_pred)
-                mcc_score_retained = matthews_corrcoef(
-                    retained_y_true, retained_hard_pred
-                )
                 gss_score_retained = gss(retained_y_true, retained_hard_pred)
                 # append to running list
                 auroc_retained_list.append(auroc_retained)
                 auprc_retained_list.append(auprc_retained)
                 avgprc_retained_list.append(avgprc_retained)
                 f1_score_retained_list.append(f1_score_retained)
-                mcc_score_retained_list.append(mcc_score_retained)
                 gss_score_retained_list.append(gss_score_retained)
                 valid_retained_percs.append(retained_perc)
                 auroc_curve_list.append(auroc_curve)
@@ -556,7 +551,6 @@ def evaluate_retained_unc(
         "auprc": auprc_retained_list,
         "avgprc": avgprc_retained_list,
         "f1_score": f1_score_retained_list,
-        "mcc": mcc_score_retained_list,
         "gss": gss_score_retained_list,
         "valid_perc": valid_retained_percs,
     }
@@ -587,7 +581,6 @@ def evaluate_random_retained_unc(
     # prepare the loop
     auroc_retained_list = []
     f1_score_retained_list = []
-    mcc_score_retained_list = []
     gss_score_retained_list = []
     auprc_retained_list = []
     avgprc_retained_list = []
@@ -597,7 +590,6 @@ def evaluate_random_retained_unc(
     for retained_perc in retained_percs:
         auroc_retained_list_rep = []
         f1_score_retained_list_rep = []
-        mcc_score_retained_list_rep = []
         gss_score_retained_list_rep = []
         auprc_retained_list_rep = []
         avgprc_retained_list_rep = []
@@ -650,16 +642,12 @@ def evaluate_random_retained_unc(
                     )
                     f1_score_retained = f1_score(retained_y_true, retained_hard_pred)
                     gss_score_retained = gss(retained_y_true, retained_hard_pred)
-                    mcc_score_retained = matthews_corrcoef(
-                        retained_y_true, retained_hard_pred
-                    )
 
                     # append to running list
                     auroc_retained_list_rep.append(auroc_retained)
                     auprc_retained_list_rep.append(auprc_retained)
                     avgprc_retained_list_rep.append(avgprc_retained)
                     f1_score_retained_list_rep.append(f1_score_retained)
-                    mcc_score_retained_list_rep.append(mcc_score_retained)
                     gss_score_retained_list_rep.append(gss_score_retained)
 
             except Exception as e:
@@ -670,7 +658,6 @@ def evaluate_random_retained_unc(
         auprc_retained_list.append(np.mean(auprc_retained_list_rep, axis=0))
         avgprc_retained_list.append(np.mean(avgprc_retained_list_rep, axis=0))
         f1_score_retained_list.append(np.mean(f1_score_retained_list_rep, axis=0))
-        mcc_score_retained_list.append(np.mean(mcc_score_retained_list_rep, axis=0))
         gss_score_retained_list.append(np.mean(gss_score_retained_list_rep, axis=0))
         valid_retained_percs.append(retained_perc)
 
@@ -680,7 +667,6 @@ def evaluate_random_retained_unc(
         "auprc": auprc_retained_list,
         "avgprc": avgprc_retained_list,
         "f1_score": f1_score_retained_list,
-        "mcc": mcc_score_retained_list,
         "gss": gss_score_retained_list,
         "valid_perc": valid_retained_percs,
     }
@@ -753,7 +739,7 @@ def summarise_retained_perf(retained_res, flatten_key=False):
     """
     Summarise the performance based on the retained/referrral scheme.
     """
-    perf_keys = ["auroc", "auprc", "avgprc", "f1_score", "mcc", "gss"]
+    perf_keys = ["auroc", "auprc", "avgprc", "f1_score", "gss"]
     weighted_perf = {
         key: np.average(
             retained_res[key],
