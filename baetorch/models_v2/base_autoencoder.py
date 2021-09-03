@@ -910,7 +910,12 @@ class BAE_BaseClass:
         elif self.likelihood == "cbernoulli":
             nll = self.log_cbernoulli_loss_torch(y_pred_mu, y_true)
         elif self.likelihood == "truncated_gaussian":
-            nll = -self.log_truncated_loss_torch(y_pred_mu, y_true, y_pred_sig)
+            if self.homoscedestic_mode == "none" and not self.twin_output:
+                nll = self.log_truncated_loss_torch(
+                    y_pred_mu, y_true, torch.ones_like(y_pred_mu)
+                )
+            else:
+                nll = self.log_truncated_loss_torch(y_pred_mu, y_true, y_pred_sig)
         elif self.likelihood == "ssim":
             nll = 1 - self.ssim(y_pred_mu, y_true)
         return nll
@@ -945,7 +950,7 @@ class BAE_BaseClass:
 
     def log_truncated_loss_torch(self, y_pred_mu, y_true, y_pred_sig):
         trunc_g = TruncatedNormal(loc=y_pred_mu, scale=y_pred_sig, a=0.0, b=1.0)
-        nll_trunc_g = trunc_g.log_prob(y_true)
+        nll_trunc_g = -trunc_g.log_prob(y_true)
         return nll_trunc_g
 
     def print_loss(self, epoch, loss):
