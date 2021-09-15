@@ -126,7 +126,6 @@ class TruncatedNormal(TruncatedStandardNormal):
 
     def __init__(self, loc, scale, a, b, validate_args=None):
         self.loc, self.scale, a, b = broadcast_all(loc, scale, a, b)
-        self.scale = torch.exp(0.5 * scale)  # predict log var instead
         a = (a - self.loc) / self.scale
         b = (b - self.loc) / self.scale
         super(TruncatedNormal, self).__init__(a, b, validate_args=validate_args)
