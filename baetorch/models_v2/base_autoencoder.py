@@ -918,14 +918,16 @@ class BAE_BaseClass:
                 nll = self.log_truncated_loss_torch(y_pred_mu, y_true, y_pred_sig)
         elif self.likelihood == "ssim":
             nll = 1 - self.ssim(y_pred_mu, y_true)
+        elif self.likelihood == "beta":
+            nll = self.log_beta_loss_torch(y_pred_mu, y_true, y_pred_sig)
         return nll
 
     def log_gaussian_loss_logsigma_torch(self, y_pred, y_true, log_sigma):
-        log_likelihood = (((y_true - y_pred) ** 2) * torch.exp(-log_sigma) * 0.5) + (
-            0.5 * log_sigma
-        )
+        neg_log_likelihood = (
+            ((y_true - y_pred) ** 2) * torch.exp(-log_sigma) * 0.5
+        ) + (0.5 * log_sigma)
 
-        return log_likelihood
+        return neg_log_likelihood
 
     # def log_gaussian_loss_logsigma_torch(self, y_pred, y_true, log_sigma):
     #
@@ -952,6 +954,15 @@ class BAE_BaseClass:
         trunc_g = TruncatedNormal(loc=y_pred_mu, scale=y_pred_sig, a=0.0, b=1.0)
         nll_trunc_g = -trunc_g.log_prob(y_true)
         return nll_trunc_g
+
+    def log_beta_loss_torch(self, y_pred_mu, y_true, y_pred_sig):
+        print(F.softplus(y_pred_mu))
+        # print(F.softplus(y_pred_sig))
+        beta_dist = torch.distributions.beta.Beta(
+            F.softplus(y_pred_mu) + 1e-11, torch.ones_like(y_pred_sig) + 1e-11
+        )
+        nll_beta = -beta_dist.log_prob(y_true)
+        return nll_beta
 
     def print_loss(self, epoch, loss):
         if self.verbose:
