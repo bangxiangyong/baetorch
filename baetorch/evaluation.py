@@ -15,13 +15,19 @@ from sklearn.metrics import (
 )
 
 
-def gss(y_true, y_pred):
+def gss(y_true, y_pred, return_ss=False):
     """
-    Gmean of sensitivity and specificity
+    Gmean of sensitivity and specificity.
+    If return_ss is True, returns the specificity and sensitivity
     """
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-    x = (tp / (tp + fn)) * (tn / (tn + fp))
-    return np.sqrt(x)
+    sens = tp / (tp + fn)
+    spec = tn / (tn + fp)
+    gss_ = np.sqrt(sens * spec)
+    if return_ss:
+        return gss_, sens, spec
+    else:
+        return gss_
 
 
 def create_dir(folder="plots"):
@@ -423,45 +429,6 @@ def retained_random_indices(all_y_true, retained_perc=0.6, return_referred=False
         )
 
 
-#
-# def retained_fixed_random_indices(
-#     all_y_true, retained_perc=0.6
-# ):
-#     # get size of retained index
-#     retained_index_size = int(np.round(len(all_y_true) * retained_perc))
-#
-#     # handle random referral
-#     retained_unc_indices = np.random.choice(
-#         np.arange(len(all_y_true)), size=retained_index_size, replace=False
-#     )
-#
-#     # get predictions of retained subsets
-#     retained_id_indices = np.argwhere(
-#         all_y_true[retained_unc_indices] == 0
-#     )[:, 0]
-#     retained_ood_indices = np.argwhere(
-#         all_y_true[retained_unc_indices] == 1
-#     )[:, 0]
-#
-#     if not return_referred:
-#         return (retained_unc_indices, retained_id_indices, retained_ood_indices)
-#
-#     else:
-#         referred_unc_indices = np.array([number for number in np.arange(len(all_y_true)) if number not in retained_unc_indices])
-#         referred_id_indices = np.argwhere(all_y_true[referred_unc_indices] == 0)[:, 0]
-#         referred_ood_indices = np.argwhere(all_y_true[referred_unc_indices] == 1)[:, 0]
-#
-#         return (retained_unc_indices, retained_id_indices, retained_ood_indices), (
-#
-#             referred_unc_indices,
-#
-#             referred_id_indices,
-#
-#             referred_ood_indices,
-#
-#         )
-
-
 def evaluate_retained_unc(
     all_outprob_mean,
     all_hard_pred,
@@ -469,6 +436,8 @@ def evaluate_retained_unc(
     all_unc=None,
     retained_percs=[0.6, 0.7, 0.8, 0.9, 1.0],
     keep_traces=True,
+    *args,
+    **kwargs,
 ):
     """
     Evaluate the classifier's performance along the scheme of retained/referral of uncertain predictions.
@@ -484,11 +453,14 @@ def evaluate_retained_unc(
     auroc_retained_list = []
     f1_score_retained_list = []
     gss_score_retained_list = []
+    sens_score_retained_list = []
+    spec_score_retained_list = []
     auprc_retained_list = []
     avgprc_retained_list = []
     valid_retained_percs = []
     auroc_curve_list = []
     auroc_traces_list = []
+    baselines_list = []
 
     # loop across retained percentages
     for retained_perc in retained_percs:
@@ -529,19 +501,26 @@ def evaluate_retained_unc(
                 avgprc_retained = calc_avgprc(
                     retained_id_outprob_mean, retained_ood_outprob_mean
                 )
+                baseline_retained = np.mean(retained_y_true)
                 f1_score_retained = f1_score(retained_y_true, retained_hard_pred)
-                gss_score_retained = gss(retained_y_true, retained_hard_pred)
+                gss_score_retained, sens_retained, spec_retained = gss(
+                    retained_y_true, retained_hard_pred, return_ss=True
+                )
+
                 # append to running list
                 auroc_retained_list.append(auroc_retained)
                 auprc_retained_list.append(auprc_retained)
                 avgprc_retained_list.append(avgprc_retained)
                 f1_score_retained_list.append(f1_score_retained)
                 gss_score_retained_list.append(gss_score_retained)
+                sens_score_retained_list.append(sens_retained)
+                spec_score_retained_list.append(spec_retained)
                 valid_retained_percs.append(retained_perc)
                 auroc_curve_list.append(auroc_curve)
                 auroc_traces_list.append(
                     [retained_id_outprob_mean, retained_ood_outprob_mean]
                 )
+                baselines_list.append(baseline_retained)
         except Exception as e:
             print(e)
 
@@ -552,7 +531,133 @@ def evaluate_retained_unc(
         "avgprc": avgprc_retained_list,
         "f1_score": f1_score_retained_list,
         "gss": gss_score_retained_list,
+        "sens": sens_score_retained_list,
+        "spec": spec_score_retained_list,
         "valid_perc": valid_retained_percs,
+        "baseline": baselines_list,
+    }
+
+    if keep_traces:
+        results.update(
+            {
+                "auroc_curve": auroc_curve_list,
+                "auroc_traces": auroc_traces_list,
+            }
+        )
+
+    return results
+
+
+def evaluate_retained_unc_v2(
+    all_outprob_mean,
+    all_hard_pred,
+    all_y_true,
+    all_unc=None,
+    keep_traces=True,
+    round_deci=0,
+    *args,
+    **kwargs,
+):
+    """
+    Evaluate the classifier's performance along the scheme of retained/referral of uncertain predictions.
+    Predictions with low uncertainties are retained while high uncertainties are `referred`.
+    Classification performance is only evaluated on predictions with low uncertainties.
+    Loops through the retained_perc and save results into a running list
+
+    Returns a dictionary of classifier performances as retained perc. is varied.
+    Has the option of returning traces (to plot ROC Curve and histograms) if required.
+    """
+
+    # prepare the loop
+    auroc_retained_list = []
+    f1_score_retained_list = []
+    gss_score_retained_list = []
+    sens_score_retained_list = []
+    spec_score_retained_list = []
+    auprc_retained_list = []
+    avgprc_retained_list = []
+    valid_retained_percs = []
+    auroc_curve_list = []
+    auroc_traces_list = []
+    baselines_list = []
+
+    # obtain unc. thresholds
+    if round_deci > 0:
+        thresholds = np.unique(all_unc.round(round_deci))
+    else:
+        thresholds = np.unique(all_unc)
+
+    # loop across thresholds
+    for threshold in thresholds:
+        try:
+            filtered_unc_indices = np.argwhere(all_unc <= threshold)[:, 0]
+            retained_y_trues = all_y_true[filtered_unc_indices]
+            retained_id_indices = np.argwhere(retained_y_trues == 0)[:, 0]
+            retained_ood_indices = np.argwhere(retained_y_trues == 1)[:, 0]
+
+            retained_id_outprob_mean = all_outprob_mean[filtered_unc_indices][
+                retained_id_indices
+            ]
+            retained_ood_outprob_mean = all_outprob_mean[filtered_unc_indices][
+                retained_ood_indices
+            ]
+
+            retained_y_true = all_y_true[filtered_unc_indices][
+                np.concatenate((retained_id_indices, retained_ood_indices))
+            ].astype(int)
+            retained_hard_pred = all_hard_pred[filtered_unc_indices][
+                np.concatenate((retained_id_indices, retained_ood_indices))
+            ].astype(int)
+            retained_perc = len(filtered_unc_indices) / len(all_unc)
+
+            # check for validity
+            if retained_y_true.sum() >= 3:
+                # calculate performance of retained pred.
+                auroc_retained, auroc_curve = calc_auroc(
+                    retained_id_outprob_mean,
+                    retained_ood_outprob_mean,
+                    return_threshold=True,
+                )
+                auprc_retained = calc_auprc(
+                    retained_id_outprob_mean, retained_ood_outprob_mean
+                )
+                avgprc_retained = calc_avgprc(
+                    retained_id_outprob_mean, retained_ood_outprob_mean
+                )
+                f1_score_retained = f1_score(retained_y_true, retained_hard_pred)
+                gss_score_retained, sens_retained, spec_retained = gss(
+                    retained_y_true, retained_hard_pred, return_ss=True
+                )
+                baseline_retained = np.mean(retained_y_true)
+
+                # append to running list
+                auroc_retained_list.append(auroc_retained)
+                auprc_retained_list.append(auprc_retained)
+                avgprc_retained_list.append(avgprc_retained)
+                f1_score_retained_list.append(f1_score_retained)
+                gss_score_retained_list.append(gss_score_retained)
+                sens_score_retained_list.append(sens_retained)
+                spec_score_retained_list.append(spec_retained)
+                valid_retained_percs.append(retained_perc)
+                auroc_curve_list.append(auroc_curve)
+                auroc_traces_list.append(
+                    [retained_id_outprob_mean, retained_ood_outprob_mean]
+                )
+                baselines_list.append(baseline_retained)
+        except Exception as e:
+            print(e)
+
+    # save results
+    results = {
+        "auroc": auroc_retained_list,
+        "auprc": auprc_retained_list,
+        "avgprc": avgprc_retained_list,
+        "f1_score": f1_score_retained_list,
+        "gss": gss_score_retained_list,
+        "sens": sens_score_retained_list,
+        "spec": spec_score_retained_list,
+        "valid_perc": valid_retained_percs,
+        "baseline": baselines_list,
     }
 
     if keep_traces:
@@ -582,17 +687,23 @@ def evaluate_random_retained_unc(
     auroc_retained_list = []
     f1_score_retained_list = []
     gss_score_retained_list = []
+    sens_score_retained_list = []
+    spec_score_retained_list = []
     auprc_retained_list = []
     avgprc_retained_list = []
     valid_retained_percs = []
+    baselines_list = []
 
     # loop across retained percentages
     for retained_perc in retained_percs:
         auroc_retained_list_rep = []
         f1_score_retained_list_rep = []
         gss_score_retained_list_rep = []
+        sens_score_retained_list_rep = []
+        spec_score_retained_list_rep = []
         auprc_retained_list_rep = []
         avgprc_retained_list_rep = []
+        baselines_retained_list_rep = []
 
         for i in range(repetition):
             try:
@@ -641,7 +752,10 @@ def evaluate_random_retained_unc(
                         retained_id_outprob_mean, retained_ood_outprob_mean
                     )
                     f1_score_retained = f1_score(retained_y_true, retained_hard_pred)
-                    gss_score_retained = gss(retained_y_true, retained_hard_pred)
+                    gss_score_retained, sens_retained, spec_retained = gss(
+                        retained_y_true, retained_hard_pred, return_ss=True
+                    )
+                    baseline_retained = np.mean(retained_y_true)
 
                     # append to running list
                     auroc_retained_list_rep.append(auroc_retained)
@@ -649,6 +763,9 @@ def evaluate_random_retained_unc(
                     avgprc_retained_list_rep.append(avgprc_retained)
                     f1_score_retained_list_rep.append(f1_score_retained)
                     gss_score_retained_list_rep.append(gss_score_retained)
+                    sens_score_retained_list_rep.append(sens_retained)
+                    spec_score_retained_list_rep.append(spec_retained)
+                    baselines_retained_list_rep.append(baseline_retained)
 
             except Exception as e:
                 print(e)
@@ -659,6 +776,9 @@ def evaluate_random_retained_unc(
         avgprc_retained_list.append(np.mean(avgprc_retained_list_rep, axis=0))
         f1_score_retained_list.append(np.mean(f1_score_retained_list_rep, axis=0))
         gss_score_retained_list.append(np.mean(gss_score_retained_list_rep, axis=0))
+        sens_score_retained_list.append(np.mean(sens_score_retained_list_rep, axis=0))
+        spec_score_retained_list.append(np.mean(spec_score_retained_list_rep, axis=0))
+        baselines_list.append(np.mean(baselines_retained_list_rep, axis=0))
         valid_retained_percs.append(retained_perc)
 
     # save results
@@ -668,7 +788,10 @@ def evaluate_random_retained_unc(
         "avgprc": avgprc_retained_list,
         "f1_score": f1_score_retained_list,
         "gss": gss_score_retained_list,
+        "sens": sens_score_retained_list,
+        "spec": spec_score_retained_list,
         "valid_perc": valid_retained_percs,
+        "baseline": baselines_list,
     }
 
     return results
