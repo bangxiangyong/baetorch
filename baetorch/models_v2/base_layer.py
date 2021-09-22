@@ -136,7 +136,10 @@ def create_block(
             )  # Instance Norm
 
         elif norm == "layer":
-            norm_layer = torch.nn.GroupNorm(1, batch_norm_size)  # Layer Norm
+            if base == "linear":
+                norm = "none"
+            else:
+                norm_layer = torch.nn.GroupNorm(1, batch_norm_size)  # Layer Norm
 
         elif norm == "weight":
             base_layer = torch.nn.utils.weight_norm(base_layer)
