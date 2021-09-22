@@ -20,11 +20,6 @@ class VAEModule(AutoencoderModule):
         self.latent_layer = VAE_Latent(self.use_cuda)
 
     def instantiate_encoder(self, chain_params=[{"base": "linear"}]):
-        # # VAE's encoder has twin output : mu and sigma
-        # chain_params_ = {}
-        # chain_params_.update(chain_params)
-        # chain_params_[-1].update({"twin_output": True})
-
         # instantiate the first chain
         # VAE: twin_output is only enabled on encoder's last layer
         encoder = self.create_chain_func[chain_params[0]["base"]](
