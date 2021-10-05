@@ -582,12 +582,10 @@ def evaluate_retained_unc_v2(
     baselines_list = []
 
     # obtain unc. thresholds
-    if round_deci > 0:
+    thresholds = np.unique(all_unc)
+    if round_deci > 0 and (len(thresholds) > round_deci):
         # thresholds = np.unique(all_unc.round(round_deci))
         thresholds = np.linspace(np.min(all_unc), np.max(all_unc), round_deci)
-
-    else:
-        thresholds = np.unique(all_unc)
 
     # ensure max unc. is evaluated as a threshold
     # if np.max(all_unc) not in thresholds:
