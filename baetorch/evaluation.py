@@ -664,7 +664,7 @@ def evaluate_retained_unc_v2(
         "spec": spec_score_retained_list,
         "valid_perc": valid_retained_percs,
         "baseline": baselines_list,
-        "threshold": threshold_list
+        "threshold": threshold_list,
     }
 
     if keep_traces:
@@ -856,6 +856,8 @@ def evaluate_misclas_detection(y_true, y_hard_pred, y_unc, return_boxplot=True):
             }
             if return_boxplot:
                 y_unc_boxplot = {
+                    "type1": [y_unc[indices_tp], y_unc[indices_fp]],
+                    "type2": [y_unc[indices_tn], y_unc[indices_fn]],
                     "all_err": [y_unc[indices_0_error], y_unc[indices_all_error]],
                 }
                 final_results.update({"y_unc_boxplot": y_unc_boxplot})
