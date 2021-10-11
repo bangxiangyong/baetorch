@@ -580,6 +580,7 @@ def evaluate_retained_unc_v2(
     auroc_curve_list = []
     auroc_traces_list = []
     baselines_list = []
+    threshold_list = []
 
     # obtain unc. thresholds
     thresholds = np.unique(all_unc)
@@ -648,6 +649,7 @@ def evaluate_retained_unc_v2(
                     [retained_id_outprob_mean, retained_ood_outprob_mean]
                 )
                 baselines_list.append(baseline_retained)
+                threshold_list.append(threshold)
         except Exception as e:
             print(e)
 
@@ -662,6 +664,7 @@ def evaluate_retained_unc_v2(
         "spec": spec_score_retained_list,
         "valid_perc": valid_retained_percs,
         "baseline": baselines_list,
+        "threshold": threshold_list
     }
 
     if keep_traces:
