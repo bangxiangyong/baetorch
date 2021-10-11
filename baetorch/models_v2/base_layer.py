@@ -6,6 +6,7 @@ import torch
 from fastai.layers import SelfAttention
 from torch.nn import Parameter
 
+from .dropout_layer import CustomDropout
 from ..util.conv2d_util import (
     calc_flatten_conv2d_forward_pass,
     calc_flatten_conv2dtranspose_forward_pass,
@@ -70,6 +71,7 @@ def create_block(
     transpose=False,
     bias=False,
     dropout=0,
+    dropout_n=1,
     create_base_layer_func=create_base_layer,
     torch_wrapper=torch.nn.Sequential,
     se_block=False,
@@ -174,10 +176,7 @@ def create_block(
 
     # handle adding dropout
     if dropout is not None and dropout > 0:
-        if base == "conv2d":
-            block.append(torch.nn.Dropout2d(dropout))
-        else:
-            block.append(torch.nn.Dropout(dropout))
+        block.append(CustomDropout(drop_p=dropout, n_samples=dropout_n))
 
     if se_block and base == "conv2d":
         block.append(SE_Block(output_size, r=16))

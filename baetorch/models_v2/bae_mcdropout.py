@@ -1,8 +1,6 @@
-from baetorch.baetorch.models_v2.base_autoencoder import BAE_BaseClass
 import torch
-import numpy as np
 
-from baetorch.baetorch.models_v2.vi_layer import VI_AutoencoderModule
+from baetorch.baetorch.models_v2.base_autoencoder import BAE_BaseClass
 
 
 class BAE_MCDropout(BAE_BaseClass):
@@ -13,8 +11,16 @@ class BAE_MCDropout(BAE_BaseClass):
         self.dropout_rate = dropout_rate
         self.num_train_samples = num_train_samples
 
+        # enforce dropout layer
         for param in params["chain_params"]:
-            param.update({"dropout": dropout_rate})
+            param.update(
+                {
+                    "dropout": dropout_rate,
+                    "dropout_n": num_test_samples
+                    if "num_samples" not in params
+                    else params["num_samples"],
+                }
+            )
         super(BAE_MCDropout, self).__init__(model_type="stochastic", **params)
 
     def log_prior_loss(self, model):
@@ -34,25 +40,3 @@ class BAE_MCDropout(BAE_BaseClass):
             ]
         )
         return stacked_criterion.mean()
-
-    # def predict(
-    #     self, x, y=None, select_keys=["y_mu", "y_sigma", "se", "nll"], *args, **params
-    # ):
-    #
-    #     # get individual forward predictions
-    #     predictions = [
-    #         super(BAE_MCDropout, self).predict(
-    #             x=x,
-    #             y=y,
-    #             select_keys=select_keys,
-    #             autoencoder_=self.autoencoder,
-    #             *args,
-    #             **params
-    #         )
-    #         for i in range(self.num_samples)
-    #     ]
-    #
-    #     # stack them
-    #     stacked_predictions = self.concat_predictions(predictions)
-    #
-    #     return stacked_predictions
