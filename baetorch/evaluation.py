@@ -863,6 +863,22 @@ def evaluate_misclas_detection(y_true, y_hard_pred, y_unc, return_boxplot=True):
                 final_results.update({"y_unc_boxplot": y_unc_boxplot})
         except Exception as e:
             print(e)
+            all_err_perf = {
+                "auroc": np.nan,
+                "auprc": np.nan,
+                "avgprc": np.nan,
+                "baseline": np.nan,
+            }
+            final_results = {
+                "all_err": all_err_perf,
+            }
+            if return_boxplot:
+                y_unc_boxplot = {
+                    "type1": [np.array([]), np.array([])],
+                    "type2": [np.array([]), np.array([])],
+                    "all_err": [np.array([]), np.array([])],
+                }
+                final_results.update({"y_unc_boxplot": y_unc_boxplot})
 
     return final_results
 
