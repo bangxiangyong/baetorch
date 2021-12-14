@@ -543,20 +543,6 @@ class BAE_BaseClass:
         """
         # EXPERIMENTAL : SEMI SUPERVISED
         if y is not None:
-
-            # z = torch.row_stack([x, y])
-            # ae_outputs = autoencoder(z)
-            # y_pred_mu, y_pred_sig, activ_loss_ = self.unpack_ae_outputs(
-            #     ae_outputs, autoencoder.log_noise
-            # )
-            #
-            # nll_ = self.log_likelihood_loss(
-            #     y_pred_mu, z, y_pred_sig, return_mean=False
-            # ).mean(-1)
-            #
-            # ood_nll = nll_[len(x) :]
-            # id_nll = nll_[: len(x)]
-
             # working code::
             ae_outputs = autoencoder(x)
             y_pred_mu, y_pred_sig, activ_loss_ = self.unpack_ae_outputs(
@@ -585,16 +571,9 @@ class BAE_BaseClass:
                 ood_nll, torch.ones_like(ood_nll), reduction="mean"
             )
 
-            # nll = id_nll.mean() - ood_nll.mean() * 0.1 + class_loss
-
-            # nll = id_nll.mean() - ood_nll.mean()
             nll = id_nll.mean() + class_loss
-            # nll = id_nll.mean()
 
-            # nll = nll.mean() + class_loss
-            # nll = nll.mean()
-            # nll = nll.mean() - semi_nll.mean()
-
+        # UNSUPERVISED
         else:
             # get AE forwards
             ae_outputs = autoencoder(x)
@@ -616,34 +595,6 @@ class BAE_BaseClass:
             return nll + prior_loss
         else:
             return nll
-
-    # def criterion(self, autoencoder, x, y=None):
-    #     """
-    #     Override this if necessary.
-    #     This computes the combined loss to be optimised.
-    #     Prior and Likelihood losses are to be computed here.
-    #     """
-    #     # get AE forwards
-    #     ae_outputs = autoencoder(x)
-    #
-    #     # unpack AE outputs due to AE's nature of multiple outputs
-    #     y_pred_mu, y_pred_sig, activ_loss_ = self.unpack_ae_outputs(
-    #         ae_outputs, autoencoder.log_noise
-    #     )
-    #
-    #     # likelihood loss
-    #     nll = self.log_likelihood_loss(y_pred_mu, x, y_pred_sig, return_mean=True)
-    #
-    #     # check if activation loss is needed
-    #     if self.activ_loss and self.sparse_scale > 0:
-    #         nll = nll + activ_loss_ * self.sparse_scale
-    #
-    #     # prior loss
-    #     if self.weight_decay > 0:
-    #         prior_loss = self.log_prior_loss(model=autoencoder)
-    #         return nll + prior_loss
-    #     else:
-    #         return nll
 
     def predict_one(
         self,
