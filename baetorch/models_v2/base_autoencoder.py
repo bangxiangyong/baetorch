@@ -670,9 +670,13 @@ class BAE_BaseClass:
 
         return res
 
-    def predict_dataloader(self, dataloader, select_keys, autoencoder_, y=None):
+    def predict_dataloader(
+        self, dataloader, select_keys, autoencoder_, aggregate=False, y=None
+    ):
         """
         Accumulate results from each test batch, instead of calculating all at one go.
+
+        If aggregate, will summarise samples into mean and var, and will not return raw BAE samples.
         """
 
         final_results = []  # return list of prediction dicts
@@ -698,19 +702,61 @@ class BAE_BaseClass:
                     for ae_i in autoencoder_
                 ]
 
+            # summarise samples if needed
+            # to reduce total memory usage
+            if aggregate:
+                agg_res = self.aggregate_samples(
+                    self.concat_predictions(next_batch_result_samples),
+                    select_keys=select_keys,
+                )
+                next_batch_result_samples = agg_res
+                
             # populate for first time
             if batch_idx == 0:
-                final_results = np.copy(next_batch_result_samples)
+                final_results = copy.deepcopy(next_batch_result_samples)
 
             # append for subsequent batches
             else:
-                for i in range(self.num_samples):
-                    for key in final_results[i].keys():
-                        final_results[i][key] = np.concatenate(
-                            (final_results[i][key], next_batch_result_samples[i][key]),
+                # not-aggregated i.e. list of dict of BAE samples
+                if not aggregate:
+                    for i in range(self.num_samples):
+                        for key in final_results[i].keys():
+                            final_results[i][key] = np.concatenate(
+                                (
+                                    final_results[i][key],
+                                    next_batch_result_samples[i][key],
+                                ),
+                                axis=0,
+                            )
+                # handle aggregated
+                else:
+                    for key in final_results.keys():
+                        final_results[key] = np.concatenate(
+                            (final_results[key], next_batch_result_samples[key]),
                             axis=0,
                         )
+
         return final_results
+
+    def aggregate_samples(
+        self, bae_pred, select_keys=["y_mu", "y_sigma", "se", "bce", "nll"]
+    ):
+        # computes mean/var of BAE sampled predictions
+        # given keys e.g. "nll", returns a dict with "nll_mean", "nll_var"
+        # "waic" is also calculated automatically, if key is "nll"
+        # for y_mu_mean, y_mu_var, nll_mean, nll_var, waic
+
+        final_res = {}
+        for key in select_keys:
+            key_mean = flatten_np(np.mean(bae_pred[key], axis=0))
+            key_var = flatten_np(np.var(bae_pred[key], axis=0))
+
+            final_res.update({key + "_mean": key_mean, key + "_var": key_var})
+
+            if key == "nll":
+                waic = key_mean + key_var
+                final_res.update({"waic": waic})
+        return final_res
 
     def predict_(self, x, *args, **kwargs):
         """
@@ -727,6 +773,7 @@ class BAE_BaseClass:
         y=None,
         select_keys=["y_mu", "y_sigma", "se", "bce", "nll"],
         autoencoder_=None,
+        aggregate=False,
     ):
         """
         Actual predict function exposed to user. User should be exposed to use only this predict function.
@@ -743,27 +790,53 @@ class BAE_BaseClass:
                     if self.stochastic_seed != -1:
                         bae_set_seed(self.stochastic_seed)
 
-                # get individual stochastic forward predictions
+                # handle data loader / numpy inputs
+                # type 1: data loader
                 if isinstance(x, torch.utils.data.dataloader.DataLoader):
                     predictions = self.predict_dataloader(
                         x,
                         y=y,
                         select_keys=select_keys,
                         autoencoder_=self.autoencoder,
+                        aggregate=aggregate,
                     )
+                # type2 : numpy inputs
                 else:
-                    predictions = [
-                        self.predict_one(
-                            x=x,
-                            y=y,
+                    # check model type
+                    # stochastic: e.g. VAE,VI,MCD
+                    # list: ensemble, sghmc
+                    if self.model_type == "stochastic":
+                        predictions = [
+                            self.predict_one(
+                                x=x,
+                                y=y,
+                                select_keys=select_keys,
+                                autoencoder_=self.autoencoder,
+                            )
+                            for i in range(self.num_samples)
+                        ]
+                    elif self.model_type == "list":
+                        predictions = [
+                            self.predict_one(
+                                x=x,
+                                y=y,
+                                select_keys=select_keys,
+                                autoencoder_=ae_i,
+                            )
+                            for ae_i in self.autoencoder
+                        ]
+                    # aggregate results?
+                    if aggregate:
+                        predictions = self.aggregate_samples(
+                            bae_pred=self.concat_predictions(predictions),
                             select_keys=select_keys,
-                            autoencoder_=self.autoencoder,
                         )
-                        for i in range(self.num_samples)
-                    ]
-
-                # stack them
-                return self.concat_predictions(predictions)
+                # return results
+                # return raw BAE samples of results or aggregated ones
+                if not aggregate:
+                    return self.concat_predictions(predictions)
+                else:
+                    return predictions
 
     def log_prior_loss(self, model):
         # check if anchored prior is used
