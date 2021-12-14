@@ -340,7 +340,7 @@ class BAE_BaseClass:
         use_cuda=False,
         skip=False,
         homoscedestic_mode="none",
-        num_samples=5,
+        num_samples=1,
         anchored=False,
         weight_decay=1e-10,
         num_epochs=10,
@@ -674,23 +674,42 @@ class BAE_BaseClass:
         """
         Accumulate results from each test batch, instead of calculating all at one go.
         """
-        final_results = {}
 
+        final_results = []  # return list of prediction dicts
         for batch_idx, (data, target) in tqdm(enumerate(dataloader)):
             # predict new batch of results
-            next_batch_result = self.predict_one(
-                x=data, select_keys=select_keys, autoencoder_=autoencoder_
-            )
+            # handle type of AE model
+            if self.model_type == "deterministic":
+                next_batch_result_samples = [
+                    self.predict_one(
+                        x=data, select_keys=select_keys, autoencoder_=autoencoder_
+                    )
+                ]
+            elif self.model_type == "stochastic":
+                next_batch_result_samples = [
+                    self.predict_one(
+                        x=data, select_keys=select_keys, autoencoder_=autoencoder_
+                    )
+                    for i in range(self.num_samples)
+                ]
+            elif self.model_type == "list":
+                next_batch_result_samples = [
+                    self.predict_one(x=data, select_keys=select_keys, autoencoder_=ae_i)
+                    for ae_i in autoencoder_
+                ]
 
             # populate for first time
             if batch_idx == 0:
-                final_results.update(next_batch_result)
+                final_results = np.copy(next_batch_result_samples)
+
             # append for subsequent batches
             else:
-                for key in final_results.keys():
-                    final_results[key] = np.concatenate(
-                        (final_results[key], next_batch_result[key]), axis=0
-                    )
+                for i in range(self.num_samples):
+                    for key in final_results[i].keys():
+                        final_results[i][key] = np.concatenate(
+                            (final_results[i][key], next_batch_result_samples[i][key]),
+                            axis=0,
+                        )
         return final_results
 
     def predict_(self, x, *args, **kwargs):
@@ -719,35 +738,29 @@ class BAE_BaseClass:
                     x=x, y=y, select_keys=select_keys, autoencoder_=autoencoder_
                 )
 
-            elif self.model_type == "stochastic":
-                if self.stochastic_seed != -1:
-                    bae_set_seed(self.stochastic_seed)
+            elif (self.model_type == "stochastic") or (self.model_type == "list"):
+                if self.model_type == "stochastic":
+                    if self.stochastic_seed != -1:
+                        bae_set_seed(self.stochastic_seed)
 
                 # get individual stochastic forward predictions
-                predictions = [
-                    self.predict_(
-                        x=x,
+                if isinstance(x, torch.utils.data.dataloader.DataLoader):
+                    predictions = self.predict_dataloader(
+                        x,
                         y=y,
                         select_keys=select_keys,
                         autoencoder_=self.autoencoder,
                     )
-                    for i in range(self.num_samples)
-                ]
-
-                # stack them
-                return self.concat_predictions(predictions)
-
-            elif self.model_type == "list":
-                # get individual forward predictions from list of autoencoders
-                predictions = [
-                    self.predict_(
-                        x=x,
-                        y=y,
-                        select_keys=select_keys,
-                        autoencoder_=autoencoder,
-                    )
-                    for autoencoder in self.autoencoder
-                ]
+                else:
+                    predictions = [
+                        self.predict_one(
+                            x=x,
+                            y=y,
+                            select_keys=select_keys,
+                            autoencoder_=self.autoencoder,
+                        )
+                        for i in range(self.num_samples)
+                    ]
 
                 # stack them
                 return self.concat_predictions(predictions)
