@@ -1183,6 +1183,14 @@ class BAE_BaseClass:
                 torch_filename = temp
             self.autoencoder.load_state_dict(torch.load(folder_path + torch_filename))
 
+    def reset_parameters(self):
+        if self.model_type == "list":
+            for autoencoder in self.autoencoder:
+                autoencoder.reset_parameters()
+        else:
+            self.autoencoder.reset_parameters()
+        self.losses = []
+
 
 class SparseAutoencoderModule(AutoencoderModule):
     def __init__(self, **params):
