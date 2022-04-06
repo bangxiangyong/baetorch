@@ -36,6 +36,7 @@ from sklearn.preprocessing import MinMaxScaler
 from torch.nn import Parameter, GaussianNLLLoss
 
 # from .sparse_ae import SparseAutoencoderModule
+from ..evaluation import calc_auroc
 from ..models_v2.base_layer import (
     Reshape,
     Flatten,
@@ -475,7 +476,7 @@ class BAE_BaseClass:
                         else:
                             loss = self.fit_one(x=data, y=y, **fit_kwargs)
                     temp_loss.append(loss)
-                    self.losses.append(np.mean(temp_loss))  # indent?
+                self.losses.append(np.mean(temp_loss))  # indent?
                 self.print_loss(epoch, self.losses[-1])
 
         # handle np.ndarray or tensor
@@ -534,6 +535,88 @@ class BAE_BaseClass:
             if y is not None:
                 y.cpu()
         return loss.item()
+
+    def fit_test(
+        self, x, x_id_test, x_ood_test, y=None, num_epochs=5, every=1, **fit_kwargs
+    ):
+        # initialise optimisers and scheduler (if applicable)
+        self.init_fit()
+        self.aurocs = []
+
+        # handle train loader
+        if isinstance(x, torch.utils.data.dataloader.DataLoader):
+
+            # if scaler is enabled
+            # fit transform on it first
+            if self.scaler_enabled:
+                self.scaler.fit(x.dataset.x)
+
+            for epoch in tqdm(range(num_epochs)):
+                temp_loss = []
+                for batch_idx, (data, target) in enumerate(x):
+                    if len(data) <= 2:
+                        continue
+                    else:
+                        # handle scaler
+                        if self.scaler_enabled:
+                            loss = self.fit_one(
+                                x=self.scaler.transform(data), y=y, **fit_kwargs
+                            )
+                        else:
+                            loss = self.fit_one(x=data, y=y, **fit_kwargs)
+                    temp_loss.append(loss)
+                self.losses.append(np.mean(temp_loss))  # indent?
+
+                if epoch % every == 0:
+                    # predict
+                    nll_id = (
+                        self.predict(x_id_test, select_keys=["nll"])["nll"]
+                        .mean(0)
+                        .mean(-1)
+                    )
+                    nll_ood = (
+                        self.predict(x_ood_test, select_keys=["nll"])["nll"]
+                        .mean(0)
+                        .mean(-1)
+                    )
+                    self.aurocs.append(calc_auroc(nll_id.mean(-1), nll_ood.mean(-1)))
+
+                self.print_loss(epoch, self.losses[-1])
+
+        # handle np.ndarray or tensor
+        else:
+            # fit scaler
+            if self.scaler_enabled:
+                x = self.scaler.fit_transform(x)
+
+            # convert to tensor
+            x, y = self.convert_tensor(x=x, y=y)
+
+            # start running through loop
+            for epoch in tqdm(range(num_epochs)):
+                loss = self.fit_one(x=x, y=y, **fit_kwargs)
+                self.losses.append(loss)
+                self.print_loss(epoch, self.losses[-1])
+
+                if epoch % every == 0:
+                    # predict
+                    nll_id = (
+                        self.predict(x_id_test, select_keys=["nll"])["nll"]
+                        .mean(0)
+                        .mean(-1)
+                    )
+                    nll_ood = (
+                        self.predict(x_ood_test, select_keys=["nll"])["nll"]
+                        .mean(0)
+                        .mean(-1)
+                    )
+                    self.aurocs.append(calc_auroc(nll_id.mean(-1), nll_ood.mean(-1)))
+
+        # update scaler
+        if self.scaler_enabled:
+            self.scaler.fitted = True
+
+        return self
 
     def criterion(self, autoencoder, x, y=None):
         """
@@ -710,7 +793,7 @@ class BAE_BaseClass:
                     select_keys=select_keys,
                 )
                 next_batch_result_samples = agg_res
-                
+
             # populate for first time
             if batch_idx == 0:
                 final_results = copy.deepcopy(next_batch_result_samples)
