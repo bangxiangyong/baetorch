@@ -21,17 +21,31 @@ def plot_learning_rate_iterations(train_batch_number, lr_list):
 def plot_learning_rate_finder(X, y, gp_mean, negative_peaks, minimum_lr, maximum_lr):
     plt.figure()
     plt.axvspan(minimum_lr, maximum_lr, color="green", alpha=0.3)
-    plt.plot(X, y)
+    # plt.plot(X, y)
     plt.plot(X, gp_mean)
-    plt.plot(X[negative_peaks], gp_mean[negative_peaks], "x", c="red")
+    # plt.plot(X[negative_peaks], gp_mean[negative_peaks], "x", c="red")
     plt.xscale("log")
 
     # min and max vertical lines
-    min_max_lr_text = "Min lr:{} , Max lr: {}".format(minimum_lr, maximum_lr)
+    min_max_lr_text = "Min rate:{} , Max rate: {}".format(minimum_lr, maximum_lr)
     ymin_plot = np.min(gp_mean)
     ymax_plot = np.max(gp_mean)
-    plt.vlines(maximum_lr, ymin_plot, ymax_plot)
-    plt.vlines(minimum_lr, ymin_plot, ymax_plot)
+    plt.vlines(
+        maximum_lr,
+        ymin_plot,
+        ymax_plot,
+        linestyles="dashed",
+        linewidth=1.5,
+        color="black",
+    )
+    plt.vlines(
+        minimum_lr,
+        ymin_plot,
+        ymax_plot,
+        linestyles="dashed",
+        linewidth=1.5,
+        color="black",
+    )
 
     plt.xlabel("Learning rate (log-scale)")
     plt.ylabel("Loss (scaled)")
@@ -770,7 +784,7 @@ def run_auto_lr_range_v4(
         # option to save plot
         if ".png" in savefile:
             create_dir(savefolder)
-            plt.savefig(savefolder + "/" + savefile)
+            plt.savefig(savefolder + "/" + savefile, dpi=500)
 
     # reset the model again after training
     if reset_params:
