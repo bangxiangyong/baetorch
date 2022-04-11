@@ -35,7 +35,7 @@ def parse_activation(activation="relu"):
         elif activation == "relu":
             activation = torch.nn.ReLU()
         elif activation == "leakyrelu":
-            activation = torch.nn.LeakyReLU()
+            activation = torch.nn.LeakyReLU(0.01)
         elif activation == "silu":
             activation = torch.nn.SiLU()
         elif activation == "selu":
@@ -44,6 +44,8 @@ def parse_activation(activation="relu"):
             activation = torch.nn.Softplus()
         elif activation == "gelu":
             activation = torch.nn.GELU()
+        elif activation == "elu":
+            activation = torch.nn.ELU()
         elif activation == "none":
             activation = None
     else:
