@@ -3,7 +3,6 @@ import copy
 
 import numpy as np
 import torch
-from fastai.layers import SelfAttention
 from torch.nn import Parameter
 
 from .dropout_layer import CustomDropout
@@ -158,12 +157,6 @@ def create_block(
 
     for layer_type in order:
         if layer_type == "base":
-            if input_size > 3 and self_att:
-                if self_att_transpose_only and transpose:
-                    block.append(SelfAttention(input_size))
-                elif not self_att_transpose_only:
-                    block.append(SelfAttention(input_size))
-
             block.append(base_layer)
 
         elif layer_type == "activation":
