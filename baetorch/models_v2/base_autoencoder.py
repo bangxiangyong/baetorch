@@ -1049,17 +1049,6 @@ class BAE_BaseClass:
 
         return neg_log_likelihood
 
-    # def log_gaussian_loss_logsigma_torch(self, y_pred, y_true, log_sigma):
-    #
-    #     return self.gauss_loss(y_pred, y_true, torch.nn.functional.softplus(log_sigma))
-
-    # def log_gaussian_loss_logsigma_torch(self, y_pred, y_true, log_sigma):
-    #     log_likelihood = (((y_true - y_pred) ** 2) * torch.exp(-log_sigma) * 0.5) + (
-    #         0.5 * log_sigma
-    #     )
-    #
-    #     return log_likelihood
-
     def log_cbernoulli_loss_torch(self, y_pred_mu, y_true):
         if hasattr(self, "cb") == False:
             self.cb = CB_Distribution()
@@ -1076,8 +1065,6 @@ class BAE_BaseClass:
         return nll_trunc_g
 
     def log_beta_loss_torch(self, y_pred_mu, y_true, y_pred_sig):
-        print(F.softplus(y_pred_mu))
-        # print(F.softplus(y_pred_sig))
         beta_dist = torch.distributions.beta.Beta(
             F.softplus(y_pred_mu) + 1e-11, torch.ones_like(y_pred_sig) + 1e-11
         )
