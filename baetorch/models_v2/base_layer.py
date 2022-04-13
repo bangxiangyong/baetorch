@@ -139,7 +139,9 @@ def create_block(
 
         elif norm == "layer":
             if base == "linear":
-                norm = "none"
+                # norm = "none"
+                norm_layer = torch.nn.GroupNorm(1, batch_norm_size)  # Layer Norm
+
             else:
                 norm_layer = torch.nn.GroupNorm(1, batch_norm_size)  # Layer Norm
 
