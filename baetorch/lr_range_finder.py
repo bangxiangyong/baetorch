@@ -812,7 +812,7 @@ def run_auto_lr_range_v5(
     train_loader,
     bae_model,
     y=None,
-    min_lr_range=0.0000001,
+    min_lr_range=1e-10,
     max_lr_range=10,
     reset_params=False,
     plot=True,
@@ -821,11 +821,22 @@ def run_auto_lr_range_v5(
     run_full=False,
     savefile="",
     savefolder="plots",
-    window_size=10,
-    num_epochs=10,
+    window_size=5,
+    num_epochs=-1,  # default to using auto
     set_scheduler=True,
-    max_allowable_lr=0.01,
+    max_allowable_lr=0.005,
 ):
+    # auto_num_epochs
+    # try to make a reasonable minimum of 300 iterations
+    if num_epochs <= 0:
+        min_iters = 500
+        num_iter = len(train_loader)
+        # if number of iterations
+        if num_iter <= min_iters:
+            num_epochs = min_iters // num_iter
+        else:
+            num_epochs = 1
+
     # helper function
     def round_sig(x, sig=2):
         return round(x, sig - int(floor(log10(abs(x)))) - 1)
@@ -975,16 +986,14 @@ def run_auto_lr_range_v5(
 
     # check and capped by max_allowable lr
     # in case an extreme max value is found by LR finder
-    if maximum_lr > max_allowable_lr:
-        if verbose:
-            print("LR rate finder has found an extreme max LR value")
-            print("Will cap it at " + str(max_allowable_lr))
+    if (maximum_lr > max_allowable_lr) & (max_allowable_lr > 0):
+        print("LR rate finder has found an extreme max LR value")
+        print("Will cap it at " + str(max_allowable_lr))
         maximum_lr_set = max_allowable_lr
     else:
         maximum_lr_set = maximum_lr
 
-    if verbose:
-        print(min_max_lr_text)
+    print(min_max_lr_text)
 
     if plot:
         plot_learning_rate_finder(X, y, gp_mean, negative_peaks, minimum_lr, maximum_lr)
@@ -1018,4 +1027,4 @@ def run_auto_lr_range_v5(
 
     bae_model.set_optimisers()
 
-    return minimum_lr, maximum_lr, half_iterations
+    return minimum_lr, maximum_lr_set, half_iterations
