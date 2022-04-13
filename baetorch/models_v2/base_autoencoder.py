@@ -356,6 +356,7 @@ class BAE_BaseClass:
         scaler_enabled=False,
         sparse_scale=0,
         stochastic_seed=-1,
+        mean_prior_loss=False,
         **ae_params,
     ):
         # save kwargs
@@ -383,6 +384,7 @@ class BAE_BaseClass:
         self.sparse_scale = sparse_scale
         self.activ_loss = False
         self.stochastic_seed = stochastic_seed
+        self.mean_prior_loss = mean_prior_loss
 
         # check if forwarding model includes activation loss
         if self.sparse_scale > 0:
@@ -665,9 +667,7 @@ class BAE_BaseClass:
             y_pred_mu, y_pred_sig, activ_loss_ = self.unpack_ae_outputs(
                 ae_outputs, autoencoder.log_noise
             )
-
             nll = self.log_likelihood_loss(y_pred_mu, x, y_pred_sig, return_mean=True)
-
         # check if activation loss is needed
         if self.activ_loss and self.sparse_scale > 0:
             nll = nll + activ_loss_ * self.sparse_scale
@@ -931,11 +931,18 @@ class BAE_BaseClass:
 
         weights = torch.cat([parameter.flatten() for parameter in model.parameters()])
 
-        # use anchored loss if necessary
+        # OPTION 1: Use anchored loss if necessary
+        # OPTION 2: Scale prior by number of parameters with mean_prior_loss
         if self.anchored:
-            prior_loss = torch.pow((weights - mu), 2).sum() * self.weight_decay
+            if self.mean_prior_loss:
+                prior_loss = torch.pow((weights - mu), 2).mean() * self.weight_decay
+            else:
+                prior_loss = torch.pow((weights - mu), 2).sum() * self.weight_decay
         else:
-            prior_loss = torch.pow((weights), 2).sum() * self.weight_decay
+            if self.mean_prior_loss:
+                prior_loss = torch.pow(weights, 2).mean() * self.weight_decay
+            else:
+                prior_loss = torch.pow(weights, 2).sum() * self.weight_decay
 
         return prior_loss
 
