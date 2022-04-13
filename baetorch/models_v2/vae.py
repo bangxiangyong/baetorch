@@ -70,7 +70,6 @@ class VAEModule(AutoencoderModule):
             enc_mu, enc_sig = self.encoder(x)
             x, kl_loss = self.latent_layer(enc_mu, enc_sig)
             x = self.decoder(x)
-
             return [x, kl_loss]
 
     def forward_skip(self, x):
@@ -145,9 +144,14 @@ class VAE_Latent(torch.nn.Module):
         return kl_loss
 
     def latent_sample(self):
+        # depracated
         latent = self.latent_mu + F.softplus(self.latent_sigma) * torch.randn_like(
             self.latent_mu
         )
+        return latent
+
+    def latent_sample_v2(self, latent_mu, latent_sigma):
+        latent = latent_mu + F.softplus(latent_sigma) * torch.randn_like(latent_mu)
         return latent
 
     def forward(self, latent_mu, latent_sigma):
@@ -168,19 +172,15 @@ class VAE_Latent(torch.nn.Module):
             self.first_time = False
 
         # draw samples for weight and bias
-        self.latent_mu.data = latent_mu
-        self.latent_sigma.data = latent_sigma
-
-        latent = self.latent_sample()
+        latent = self.latent_sample_v2(latent_mu, latent_sigma)
 
         kl_loss = self.kl_loss_prior_gaussian(
-            latent, self.latent_mu, F.softplus(self.latent_sigma)
+            latent, latent_mu, F.softplus(latent_sigma)
         )
 
         # reshape to original size if needed
         if self.reshape_size is not None:
             latent = latent.view(*self.reshape_size)
-
         return [latent, kl_loss]
 
 
