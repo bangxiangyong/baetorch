@@ -395,6 +395,13 @@ def create_linear_chain(
     """
     Returns a list of linear blocks.
     """
+    # check for zero-sized nodes
+    if any(node == 0 for node in architecture):
+        raise ValueError(
+            "Linear layer's node size cannot be zero! Got architecture string "
+            + str(architecture)
+        )
+
     if last_activation is None:
         last_activation = activation
     if last_norm is None:
