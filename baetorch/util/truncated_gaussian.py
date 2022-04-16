@@ -52,8 +52,11 @@ class TruncatedStandardNormal(Distribution):
         self._big_phi_b = self._big_phi(self.b)
         self._Z = (self._big_phi_b - self._big_phi_a).clamp_min(eps)
         self._log_Z = self._Z.log()
+        little_phi_coeff_a = torch.nan_to_num(self.a, nan=math.nan)
+        little_phi_coeff_b = torch.nan_to_num(self.b, nan=math.nan)
         self._lpbb_m_lpaa_d_Z = (
-            self._little_phi_b * self.b - self._little_phi_a * self.a
+            self._little_phi_b * little_phi_coeff_b
+            - self._little_phi_a * little_phi_coeff_a
         ) / self._Z
         self._mean = -(self._little_phi_b - self._little_phi_a) / self._Z
         self._variance = (
@@ -124,7 +127,16 @@ class TruncatedNormal(TruncatedStandardNormal):
 
     has_rsample = True
 
-    def __init__(self, loc, scale, a, b, validate_args=None):
+    def __init__(self, loc, scale, a, b, eps=1e-6, validate_args=None):
+        # Entries of var must be non-negative
+        if torch.any(scale < 0):
+            raise ValueError("var has negative entry/entries")
+
+        # Clamp for stability
+        scale = scale.clone()
+        with torch.no_grad():
+            scale.clamp_(min=eps)
+
         self.loc, self.scale, a, b = broadcast_all(loc, scale, a, b)
         a = (a - self.loc) / self.scale
         b = (b - self.loc) / self.scale

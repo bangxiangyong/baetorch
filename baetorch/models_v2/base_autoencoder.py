@@ -430,7 +430,7 @@ class BAE_BaseClass:
                 else torch.nn.CosineSimilarity(dim=1, eps=1e-6)
             )
 
-        elif self.likelihood == "gaussian":
+        elif self.likelihood == "gaussian_v2":
             self.gauss_loss = (
                 torch.nn.GaussianNLLLoss(reduction="none").cuda()
                 if use_cuda
@@ -1019,11 +1019,28 @@ class BAE_BaseClass:
         """
         if self.likelihood == "gaussian":
             if self.homoscedestic_mode == "none" and not self.twin_output:
-                nll = (y_true - y_pred_mu) ** 2
-
+                nll = (y_true - y_pred_mu) ** 2  # mse
             else:
                 nll = self.log_gaussian_loss_logsigma_torch(
                     y_pred_mu, y_true, y_pred_sig
+                )
+
+        if self.likelihood == "gaussian_v2":
+            if self.homoscedestic_mode == "none" and not self.twin_output:
+                nll = (y_true - y_pred_mu) ** 2
+            else:
+
+                # HOMO GAUSS
+                if self.use_cuda:
+                    var = (
+                        torch.ones(*y_true.shape, requires_grad=True).cuda()
+                        * y_pred_sig
+                    )
+                else:
+                    var = torch.ones(*y_true.shape, requires_grad=True) * y_pred_sig
+
+                nll = self.gauss_loss(
+                    y_pred_mu, y_true, torch.nn.functional.elu(var) + 1
                 )
 
         elif self.likelihood == "laplace":
@@ -1042,7 +1059,9 @@ class BAE_BaseClass:
                     y_pred_mu, y_true, torch.ones_like(y_pred_mu)
                 )
             else:
-                nll = self.log_truncated_loss_torch(y_pred_mu, y_true, y_pred_sig)
+                nll = self.log_truncated_loss_torch(
+                    y_pred_mu, y_true, torch.nn.functional.elu(y_pred_sig) + 1
+                )
         elif self.likelihood == "ssim":
             nll = 1 - self.ssim(y_pred_mu, y_true)
         elif self.likelihood == "beta":
