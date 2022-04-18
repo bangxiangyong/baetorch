@@ -452,9 +452,10 @@ class BAE_BaseClass:
         if self.scheduler_enabled:
             self.init_scheduler()
 
-    def fit(self, x, y=None, num_epochs=5, **fit_kwargs):
+    def fit(self, x, y=None, num_epochs=5, init_fit=True, **fit_kwargs):
         # initialise optimisers and scheduler (if applicable)
-        self.init_fit()
+        if init_fit:
+            self.init_fit()
 
         # handle train loader
         if isinstance(x, torch.utils.data.dataloader.DataLoader):
