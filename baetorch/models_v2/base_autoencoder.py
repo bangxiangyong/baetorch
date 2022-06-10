@@ -325,7 +325,6 @@ class AutoencoderModule(torch.nn.Module):
             self.log_noise = Parameter(
                 torch.FloatTensor([np.log(init_log_noise)] * log_noise_size)
             )
-
         else:
             self.log_noise = Parameter(torch.FloatTensor([[0.0]]), requires_grad=False)
 
@@ -355,8 +354,11 @@ class BAE_BaseClass:
         scaler=TorchMinMaxScaler,
         scaler_enabled=False,
         sparse_scale=0,
+        l1_prior=False,
         stochastic_seed=-1,
         mean_prior_loss=False,
+        collect_grads=False,
+        collect_losses=True,
         **ae_params,
     ):
         # save kwargs
@@ -385,6 +387,8 @@ class BAE_BaseClass:
         self.activ_loss = False
         self.stochastic_seed = stochastic_seed
         self.mean_prior_loss = mean_prior_loss
+        self.collect_grads = collect_grads
+        self.collect_losses = collect_losses
 
         # check if forwarding model includes activation loss
         if self.sparse_scale > 0:
@@ -393,6 +397,9 @@ class BAE_BaseClass:
         # if sparse autoencoder is preferred
         if self.sparse_scale > 0:
             AE_Module = SparseAutoencoderModule
+
+        # if l1_prior is used instead of l2
+        self.l1_prior = l1_prior
 
         # init AE module
         self.autoencoder = self.init_autoencoder_module(
@@ -411,6 +418,7 @@ class BAE_BaseClass:
         # set optimisers
         self.optimisers = []
         self.losses = []
+        self.grads = []
 
         # init scaler
         if self.scaler_enabled:
@@ -421,9 +429,6 @@ class BAE_BaseClass:
 
         # init ssim
         if self.likelihood == "ssim":
-            # self.ssim = (
-            #     SSIM(reduction="none").cuda() if use_cuda else SSIM(reduction="none")
-            # )
             self.ssim = (
                 torch.nn.CosineSimilarity(dim=1, eps=1e-6).cuda()
                 if use_cuda
@@ -436,6 +441,16 @@ class BAE_BaseClass:
                 if use_cuda
                 else torch.nn.GaussianNLLLoss(reduction="none")
             )
+
+        # collect name
+        self.layer_names = []
+        if type(self.autoencoder) == list:
+            temp_ac = self.autoencoder[0]
+        else:
+            temp_ac = self.autoencoder
+        for n, p in temp_ac.named_parameters():
+            if (p.requires_grad) and ("bias" not in n):
+                self.layer_names.append(n)
 
     def init_autoencoder_module(self, AE_Module, *args, **params):
         """
@@ -467,6 +482,10 @@ class BAE_BaseClass:
 
             for epoch in tqdm(range(num_epochs)):
                 temp_loss = []
+
+                # keep track of current number of gradients and average them
+                # if self.collect_grads:
+                #     len_grad = len(self.grads)
                 for batch_idx, (data, target) in enumerate(x):
                     if len(data) <= 2:
                         continue
@@ -478,9 +497,24 @@ class BAE_BaseClass:
                             )
                         else:
                             loss = self.fit_one(x=data, y=y, **fit_kwargs)
-                    temp_loss.append(loss)
-                self.losses.append(np.mean(temp_loss))  # indent?
-                self.print_loss(epoch, self.losses[-1])
+
+                    if self.collect_losses:
+                        temp_loss.append(loss)
+                if self.collect_losses:
+                    self.losses.append(np.mean(temp_loss))  # indent?
+                    self.print_loss(epoch, self.losses[-1])
+                else:
+                    self.print_loss(epoch, loss)
+
+                # EXPERIMENTAL: collect gradients if needed
+                if self.collect_grads:
+                    temp_grads = []
+                    for n, p in self.autoencoder[0].named_parameters():
+                        if (p.requires_grad) and ("bias" not in n):
+                            temp_grads.append(
+                                p.grad.abs().mean().detach().cpu().numpy()
+                            )
+                    self.grads.append(temp_grads)
 
         # handle np.ndarray or tensor
         else:
@@ -494,8 +528,20 @@ class BAE_BaseClass:
             # start running through loop
             for epoch in tqdm(range(num_epochs)):
                 loss = self.fit_one(x=x, y=y, **fit_kwargs)
-                self.losses.append(loss)
-                self.print_loss(epoch, self.losses[-1])
+
+                if self.collect_losses:
+                    self.losses.append(loss)
+                    self.print_loss(epoch, self.losses[-1])
+
+                # EXPERIMENTAL: collect gradients if needed
+                if self.collect_grads:
+                    temp_grads = []
+                    for n, p in self.autoencoder[0].named_parameters():
+                        if (p.requires_grad) and ("bias" not in n):
+                            temp_grads.append(
+                                p.grad.abs().mean().detach().cpu().numpy()
+                            )
+                    self.grads.append(temp_grads)
 
         # update scaler
         if self.scaler_enabled:
@@ -669,6 +715,7 @@ class BAE_BaseClass:
                 ae_outputs, autoencoder.log_noise
             )
             nll = self.log_likelihood_loss(y_pred_mu, x, y_pred_sig, return_mean=True)
+
         # check if activation loss is needed
         if self.activ_loss and self.sparse_scale > 0:
             nll = nll + activ_loss_ * self.sparse_scale
@@ -934,6 +981,7 @@ class BAE_BaseClass:
 
         # OPTION 1: Use anchored loss if necessary
         # OPTION 2: Scale prior by number of parameters with mean_prior_loss
+        # OPTION 3: Use L1 regularisation instead of L2 (default)
         if self.anchored:
             if self.mean_prior_loss:
                 prior_loss = torch.pow((weights - mu), 2).mean() * self.weight_decay
@@ -941,9 +989,15 @@ class BAE_BaseClass:
                 prior_loss = torch.pow((weights - mu), 2).sum() * self.weight_decay
         else:
             if self.mean_prior_loss:
-                prior_loss = torch.pow(weights, 2).mean() * self.weight_decay
+                if self.l1_prior:
+                    prior_loss = torch.abs(weights).mean() * self.weight_decay
+                else:
+                    prior_loss = torch.pow(weights, 2).mean() * self.weight_decay
             else:
-                prior_loss = torch.pow(weights, 2).sum() * self.weight_decay
+                if self.l1_prior:
+                    prior_loss = torch.abs(weights).sum() * self.weight_decay
+                else:
+                    prior_loss = torch.pow(weights, 2).sum() * self.weight_decay
 
         return prior_loss
 
@@ -1043,6 +1097,9 @@ class BAE_BaseClass:
                 nll = self.gauss_loss(
                     y_pred_mu, y_true, torch.nn.functional.elu(var) + 1
                 )
+                # nll = self.gauss_loss(
+                #     y_pred_mu, y_true, torch.nn.functional.softplus(var)
+                # )
 
         elif self.likelihood == "laplace":
             if self.homoscedestic_mode == "none" and not self.twin_output:
@@ -1063,6 +1120,9 @@ class BAE_BaseClass:
                 nll = self.log_truncated_loss_torch(
                     y_pred_mu, y_true, torch.nn.functional.elu(y_pred_sig) + 1
                 )
+                # nll = self.log_truncated_loss_torch(
+                #     y_pred_mu, y_true, torch.nn.functional.softplus(y_pred_sig)
+                # )
         elif self.likelihood == "ssim":
             nll = 1 - self.ssim(y_pred_mu, y_true)
         elif self.likelihood == "beta":
