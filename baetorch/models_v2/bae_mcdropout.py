@@ -5,7 +5,7 @@ from baetorch.baetorch.models_v2.base_autoencoder import BAE_BaseClass
 
 class BAE_MCDropout(BAE_BaseClass):
     def __init__(
-        self, num_train_samples=5, num_test_samples=100, dropout_rate=0.1, **params
+        self, num_train_samples=1, num_test_samples=100, dropout_rate=0.1, **params
     ):
         # store variables specific to mc_dropout
         self.dropout_rate = dropout_rate
