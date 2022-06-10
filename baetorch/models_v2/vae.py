@@ -186,7 +186,7 @@ class VAE_Latent(torch.nn.Module):
 
 # class VAE
 class VAE(BAE_VI):
-    def __init__(self, num_train_samples=5, num_test_samples=100, **params):
+    def __init__(self, num_train_samples=1, num_test_samples=100, **params):
         # store variables specific to mc_dropout
         self.num_train_samples = num_train_samples
         self.num_test_samples = num_test_samples
